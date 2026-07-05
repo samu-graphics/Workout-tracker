@@ -296,19 +296,9 @@
     const SUPABASE_URL = 'https://your-project.supabase.co';
     const SUPABASE_ANON_KEY = 'your-anon-key';
     var supabaseClient = null;
-    var supabaseSession = null;
     try {
       if (typeof supabase !== 'undefined' && !SUPABASE_URL.includes('your-project')) {
         supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        supabaseClient.auth.getSession().then(function(resp) {
-          if (resp.error) throw resp.error;
-          supabaseSession = resp.data.session;
-          if (supabaseSession) renderOggi();
-        });
-        supabaseClient.auth.onAuthStateChange(function(event, session) {
-          supabaseSession = session;
-          renderOggi();
-        });
       }
     } catch(e) {}
 
@@ -606,25 +596,6 @@
       if (state.darkMode === null) applyDarkMode();
     });
 
-    async function supabaseLogin(email, password) {
-      if (!supabaseClient) return;
-      try {
-        var resp = await supabaseClient.auth.signInWithPassword({ email: email, password: password });
-        if (resp.error) throw resp.error;
-        supabaseSession = resp.data.session;
-        renderOggi();
-      } catch(e) {
-        alert('Login fallito: ' + e.message);
-      }
-    }
-
-    function supabaseLogout() {
-      if (!supabaseClient) return;
-      supabaseClient.auth.signOut();
-      supabaseSession = null;
-      renderOggi();
-    }
-
     function renderOggi() {
       var view = document.getElementById('view-oggi');
       var oggi = new Date();
@@ -636,15 +607,6 @@
       var oggiDataStr = oggi.toISOString().split('T')[0];
 
       var html = '<div><p class="muted">' + giornoNome + ', ' + dataStr + '</p><h1 style="margin-top: 4px;">Oggi</h1>';
-
-      // Supabase auth banner (only when configured but not logged in)
-      if (supabaseClient && !supabaseSession) {
-        html += '<div class="warmup-box mb-12"><div class="flex items-center gap-8"><span class="material-symbols-outlined" style="font-size: 16px; color: var(--accent);">cloud_off</span><span style="font-weight: 700; font-size: 13px;">Sync cloud non attivo</span></div>';
-        html += '<div class="mt-8" style="display: flex; gap: 8px;"><input type="email" id="login-email" placeholder="Email" style="font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); width: 120px; background: var(--bg); color: var(--text);"><input type="password" id="login-password" placeholder="Password" style="font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); width: 100px; background: var(--bg); color: var(--text);"><button class="btn btn-sm btn-primary" onclick="supabaseLogin(document.getElementById(\'login-email\').value, document.getElementById(\'login-password\').value)">Login</button></div></div>';
-      }
-      if (supabaseSession) {
-        html += '<div class="mb-8 muted" style="font-size: 11px; text-align: right;">Sync cloud attivo <button class="btn btn-ghost btn-sm" onclick="supabaseLogout()" style="font-size: 11px;">Esci</button></div>';
-      }
 
       // Recommended card (non-blocking)
       if (giornoScheda) {
@@ -1814,7 +1776,7 @@
     }
 
     async function syncWorkout(workout) {
-      if (!supabaseClient || !supabaseSession) return;
+      if (!supabaseClient) return;
       try {
         await supabaseClient.from('workouts').insert({
           id: workout.id, giorno: workout.giorno, data: workout.data, durata_secondi: workout.durata_secondi, completato: workout.completato,
@@ -1832,12 +1794,12 @@
           }
         }
       } catch (e) {
-        if (e && e.message) console.warn('Sync fallito (dati salvati in locale):', e.message);
+        if (e && e.message) console.warn('Sync cloud fallito (dati salvati in locale):', e.message);
       }
     }
 
     async function loadWorkoutsFromSupabase() {
-      if (!supabaseClient || !supabaseSession) return [];
+      if (!supabaseClient) return [];
       try {
         var result = await supabaseClient.from('workouts').select('*').order('data', { ascending: false });
         if (result.error) throw result.error;
