@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com https://fonts.googleapis.com; connect-src 'self' https://*.supabase.co; img-src 'self' data:; worker-src 'none';">
   <title>Workout Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,0..200" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap" />
@@ -295,13 +296,21 @@
     const SUPABASE_URL = 'https://your-project.supabase.co';
     const SUPABASE_ANON_KEY = 'your-anon-key';
     var supabaseClient = null;
+    var supabaseSession = null;
     try {
       if (typeof supabase !== 'undefined' && !SUPABASE_URL.includes('your-project')) {
         supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        supabaseClient.auth.getSession().then(function(resp) {
+          if (resp.error) throw resp.error;
+          supabaseSession = resp.data.session;
+          if (supabaseSession) renderOggi();
+        });
+        supabaseClient.auth.onAuthStateChange(function(event, session) {
+          supabaseSession = session;
+          renderOggi();
+        });
       }
-    } catch(e) {
-      console.warn('Supabase sync not available, running offline:', e);
-    }
+    } catch(e) {}
 
     const state = {
       currentView: 'oggi',
@@ -469,7 +478,7 @@
         }
         const history = localStorage.getItem('workout_history');
         if (history) state.workoutHistory = JSON.parse(history);
-      } catch(e) { console.warn('Cache load error:', e); }
+      } catch(e) {}
     }
 
     function saveCache() {
@@ -571,6 +580,11 @@
 
     var DATA_VERSION = 2;
 
+    function h(s) {
+      if (s == null) return '';
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+    }
+
     loadCache();
 
     if (state.templates.length === 0 || !state.dataVersion || state.dataVersion < DATA_VERSION) {
@@ -592,6 +606,25 @@
       if (state.darkMode === null) applyDarkMode();
     });
 
+    async function supabaseLogin(email, password) {
+      if (!supabaseClient) return;
+      try {
+        var resp = await supabaseClient.auth.signInWithPassword({ email: email, password: password });
+        if (resp.error) throw resp.error;
+        supabaseSession = resp.data.session;
+        renderOggi();
+      } catch(e) {
+        alert('Login fallito: ' + e.message);
+      }
+    }
+
+    function supabaseLogout() {
+      if (!supabaseClient) return;
+      supabaseClient.auth.signOut();
+      supabaseSession = null;
+      renderOggi();
+    }
+
     function renderOggi() {
       var view = document.getElementById('view-oggi');
       var oggi = new Date();
@@ -603,6 +636,15 @@
       var oggiDataStr = oggi.toISOString().split('T')[0];
 
       var html = '<div><p class="muted">' + giornoNome + ', ' + dataStr + '</p><h1 style="margin-top: 4px;">Oggi</h1>';
+
+      // Supabase auth banner (only when configured but not logged in)
+      if (supabaseClient && !supabaseSession) {
+        html += '<div class="warmup-box mb-12"><div class="flex items-center gap-8"><span class="material-symbols-outlined" style="font-size: 16px; color: var(--accent);">cloud_off</span><span style="font-weight: 700; font-size: 13px;">Sync cloud non attivo</span></div>';
+        html += '<div class="mt-8" style="display: flex; gap: 8px;"><input type="email" id="login-email" placeholder="Email" style="font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); width: 120px; background: var(--bg); color: var(--text);"><input type="password" id="login-password" placeholder="Password" style="font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); width: 100px; background: var(--bg); color: var(--text);"><button class="btn btn-sm btn-primary" onclick="supabaseLogin(document.getElementById(\'login-email\').value, document.getElementById(\'login-password\').value)">Login</button></div></div>';
+      }
+      if (supabaseSession) {
+        html += '<div class="mb-8 muted" style="font-size: 11px; text-align: right;">Sync cloud attivo <button class="btn btn-ghost btn-sm" onclick="supabaseLogout()" style="font-size: 11px;">Esci</button></div>';
+      }
 
       // Recommended card (non-blocking)
       if (giornoScheda) {
@@ -644,7 +686,7 @@
         var isActive = state.activeWorkout && state.activeWorkout.giorno === t.giorno && state.activeWorkout.data === oggiDataStr;
         var isRecommended = t.giorno === giornoScheda;
 
-        html += '<div class="card' + (isRecommended && !completataOggi ? ' card-highlight' : '') + ' card-clickable" onclick="startWorkout(\'' + t.giorno + '\')"><div class="flex items-center justify-between"><div><div style="font-weight: 700;">' + t.giorno + '</div><div class="exercise-meta">' + t.esercizi.length + ' esercizi';
+        html += '<div class="card' + (isRecommended && !completataOggi ? ' card-highlight' : '') + ' card-clickable" onclick="startWorkout(\'' + h(t.giorno) + '\')"><div class="flex items-center justify-between"><div><div style="font-weight: 700;">' + h(t.giorno) + '</div><div class="exercise-meta">' + t.esercizi.length + ' esercizi';
         if (doneCount > 0) html += ' · ' + doneCount + '× completato';
         if (totalVolume > 0) html += ' · ' + Math.round(totalVolume / doneCount / 1000) + 'k kg media';
         html += '</div></div>';
@@ -763,7 +805,7 @@
       var html = '';
       html += '<div class="workout-sticky">';
       var faseLabel = state.fase === 'deload' ? 'Deload' : 'Fase ' + state.fase;
-      html += '<div class="flex items-center justify-between mb-8"><button class="workout-header-btn" onclick="exitWorkout()"><span class="material-symbols-outlined">arrow_back</span> ' + state.activeWorkout.giorno + '</button><div class="flex items-center gap-8"><span class="fase-badge">' + faseLabel + '</span><div class="timer"><span class="material-symbols-outlined" style="font-size: 16px; color: var(--text-secondary);">schedule</span><span id="timer-display">' + formatTime(Math.floor((Date.now() - state.workoutStartTime) / 1000)) + '</span></div><button class="btn btn-ghost btn-sm" style="color: var(--accent);" onclick="if(confirm(\'Terminare l\\\'allenamento?\'))finishWorkout()">Fine</button></div></div>';
+      html += '<div class="flex items-center justify-between mb-8"><button class="workout-header-btn" onclick="exitWorkout()"><span class="material-symbols-outlined">arrow_back</span> ' + h(state.activeWorkout.giorno) + '</button><div class="flex items-center gap-8"><span class="fase-badge">' + h(faseLabel) + '</span><div class="timer"><span class="material-symbols-outlined" style="font-size: 16px; color: var(--text-secondary);">schedule</span><span id="timer-display">' + formatTime(Math.floor((Date.now() - state.workoutStartTime) / 1000)) + '</span></div><button class="btn btn-ghost btn-sm" style="color: var(--accent);" onclick="if(confirm(\'Terminare l\\\'allenamento?\'))finishWorkout()">Fine</button></div></div>';
 
       // Navigation prev/next
       html += '<div class="flex items-center gap-8 mb-12">';
@@ -789,7 +831,7 @@
       if (allDoneAllMax && templateCurrentEx) {
         var oldWeight = state.lastWeights[currentEx.nome];
         var suggestPeso = oldWeight ? Math.ceil((oldWeight.peso + 2.5) / 2.5) * 2.5 : '';
-        html += '<div class="dprog-alert">Tutte le serie al massimo delle ripetizioni! ' + (suggestPeso ? 'Prova ad aumentare a ' + suggestPeso + ' kg.' : 'Aumenta il carico al prossimo allenamento.') + '</div>';
+        html += '<div class="dprog-alert">Tutte le serie al massimo delle ripetizioni! ' + (suggestPeso ? 'Prova ad aumentare a ' + h(suggestPeso) + ' kg.' : 'Aumenta il carico al prossimo allenamento.') + '</div>';
       }
 
       html += '</div>'; // .workout-sticky
@@ -834,7 +876,7 @@
         if (!isCurrentEx) exClasses += ' clickable';
 
         html += '<div class="' + exClasses + '"' + (!isCurrentEx ? ' onclick="navigateToExercise(' + exIdx + ')"' : '') + '>';
-        html += '<div class="flex items-center justify-between mb-8"><div><div class="exercise-name">' + (isSkipped ? '<span class="muted">Saltato: </span>' : '') + ex.nome + '</div><div class="exercise-meta">' + ex.serieTarget + ' serie · target ' + targetReps + ' reps · RPE ' + (templateEx ? templateEx.rpeTarget : '') + (allSetsDone ? ' <span class="material-symbols-outlined accent-text" style="font-size: 14px;">check_circle</span>' : '') + '</div></div><div style="display: flex; gap: 4px;">' + (EXERCISE_NOTES[ex.nome] ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleNotes(' + exIdx + ')"><span class="material-symbols-outlined" style="font-size: 16px;">info</span></button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();skipExercise(' + exIdx + ')">Salta</button>' : '') + '</div></div>';
+        html += '<div class="flex items-center justify-between mb-8"><div><div class="exercise-name">' + (isSkipped ? '<span class="muted">Saltato: </span>' : '') + h(ex.nome) + '</div><div class="exercise-meta">' + h(ex.serieTarget) + ' serie · target ' + h(targetReps) + ' reps · RPE ' + h(templateEx ? templateEx.rpeTarget : '') + (allSetsDone ? ' <span class="material-symbols-outlined accent-text" style="font-size: 14px;">check_circle</span>' : '') + '</div></div><div style="display: flex; gap: 4px;">' + (EXERCISE_NOTES[ex.nome] ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleNotes(' + exIdx + ')"><span class="material-symbols-outlined" style="font-size: 16px;">info</span></button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();skipExercise(' + exIdx + ')">Salta</button>' : '') + '</div></div>';
 
         // Notes panel (expandable)
         if (EXERCISE_NOTES[ex.nome]) {
@@ -850,13 +892,13 @@
 
           html += '<div class="set-grid ' + opacity + '"><div class="set-cell" style="font-weight: 700;">' + set.serie_numero + '</div>';
 
-          var repsVal = set.ripetizioni || (isCurrentSet && last ? last.reps : '');
-          var pesoVal = set.peso_kg || (isCurrentSet && last ? last.peso : '');
-          var rirVal = set.rir || (isCurrentSet && last ? last.rir : '');
+          var repsVal = h(set.ripetizioni || (isCurrentSet && last ? last.reps : ''));
+          var pesoVal = h(set.peso_kg || (isCurrentSet && last ? last.peso : ''));
+          var rirVal = h(set.rir || (isCurrentSet && last ? last.rir : ''));
 
-          html += '<div class="set-cell"><input type="number" id="input-reps-' + exIdx + '-' + setIdx + '" value="' + repsVal + '" min="1" max="30" style="width: 48px;" placeholder="' + (last && isCurrentSet ? last.reps : '') + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'ripetizioni\',this.value)"' + '></div>';
-          html += '<div class="set-cell"><input type="number" id="input-peso-' + exIdx + '-' + setIdx + '" value="' + pesoVal + '" min="0" step="0.5" style="width: 64px;" placeholder="' + (last && isCurrentSet ? last.peso + 'kg' : '') + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'peso_kg\',this.value)"' + '></div>';
-          html += '<div class="set-cell"><input type="number" id="input-rir-' + exIdx + '-' + setIdx + '" value="' + rirVal + '" min="6.5" max="10" step="0.5" style="width: 46px;" placeholder="' + (last && isCurrentSet ? last.rir : (templateEx ? templateEx.rpeTarget : '')) + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'rir\',this.value)"' + '></div>';
+          html += '<div class="set-cell"><input type="number" id="input-reps-' + exIdx + '-' + setIdx + '" value="' + repsVal + '" min="1" max="30" style="width: 48px;" placeholder="' + h(last && isCurrentSet ? last.reps : '') + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'ripetizioni\',this.value)"' + '></div>';
+          html += '<div class="set-cell"><input type="number" id="input-peso-' + exIdx + '-' + setIdx + '" value="' + pesoVal + '" min="0" step="0.5" style="width: 64px;" placeholder="' + h(last && isCurrentSet ? last.peso + 'kg' : '') + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'peso_kg\',this.value)"' + '></div>';
+          html += '<div class="set-cell"><input type="number" id="input-rir-' + exIdx + '-' + setIdx + '" value="' + rirVal + '" min="6.5" max="10" step="0.5" style="width: 46px;" placeholder="' + h(last && isCurrentSet ? last.rir : (templateEx ? templateEx.rpeTarget : '')) + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'rir\',this.value)"' + '></div>';
 
           html += '<div class="set-cell">';
           if (set.completato) {
@@ -1086,7 +1128,7 @@
       var view = document.getElementById('view-riepilogo');
       var totalVolume = 0;
       var totalSets = 0;
-      var html = '<div><h1>Allenamento completato</h1><p class="muted mb-16">' + workout.giorno + ' · ' + Math.floor(workout.durata_secondi / 60) + ' minuti</p><div class="divider"></div>';
+      var html = '<div><h1>Allenamento completato</h1><p class="muted mb-16">' + h(workout.giorno) + ' · ' + Math.floor(workout.durata_secondi / 60) + ' minuti</p><div class="divider"></div>';
 
       workout.exercises.forEach(function(ex) {
         var doneSets = ex.sets.filter(function(s) { return s.completato; });
@@ -1094,7 +1136,7 @@
         var volume = doneSets.reduce(function(sum, s) { return sum + (s.ripetizioni * s.peso_kg); }, 0);
         totalVolume += volume;
         totalSets += doneSets.length;
-        html += '<div class="flex items-center justify-between" style="padding: 8px 0; border-bottom: 1px solid var(--border-light);"><div><div class="exercise-name" style="font-size: 14px;">' + ex.nome + '</div><div class="muted">' + doneSets.length + ' serie · ' + doneSets.map(function(s) { return s.ripetizioni + '×' + s.peso_kg + 'kg'; }).join(', ') + '</div></div><div class="accent-text" style="font-weight: 700;">' + volume + ' kg</div></div>';
+        html += '<div class="flex items-center justify-between" style="padding: 8px 0; border-bottom: 1px solid var(--border-light);"><div><div class="exercise-name" style="font-size: 14px;">' + h(ex.nome) + '</div><div class="muted">' + doneSets.length + ' serie · ' + doneSets.map(function(s) { return s.ripetizioni + '×' + s.peso_kg + 'kg'; }).join(', ') + '</div></div><div class="accent-text" style="font-weight: 700;">' + volume + ' kg</div></div>';
       });
 
       html += '<div class="divider"></div><div class="flex justify-between" style="font-size: 18px;"><div><span style="font-weight: 700;">' + totalVolume + ' kg</span> <span class="muted">volume</span></div><div><span style="font-weight: 700;">' + totalSets + '</span> <span class="muted">serie</span></div><div><span style="font-weight: 700;">' + Math.floor(workout.durata_secondi / 60) + '\'</span> <span class="muted">durata</span></div></div><div class="divider"></div><button class="btn btn-block mt-16" onclick="afterRiepilogo()">Chiudi</button></div>';
@@ -1248,12 +1290,12 @@
 
         var exDetails = getExerciseDetailsForMuscle(mg);
 
-        html += '<div class="muscle-row" data-mg="' + mg.replace(/"/g,'&quot;') + '"><div class="muscle-label">' + mg + '</div><div class="muscle-bar-wrap"><div class="muscle-bar-bg"><div class="muscle-bar-fill" style="width: ' + pct + '%; background: ' + statusColor + ';"></div></div><div class="muscle-bar-range" style="left: ' + rangeStart + '%; width: ' + Math.max(4, rangeEnd - rangeStart) + '%;"></div></div><div class="muscle-value" style="color: ' + statusColor + ';">' + v + '</div><div class="muscle-status">' + statusIcon + '</div></div>';
+        html += '<div class="muscle-row" data-mg="' + h(mg) + '"><div class="muscle-label">' + h(mg) + '</div><div class="muscle-bar-wrap"><div class="muscle-bar-bg"><div class="muscle-bar-fill" style="width: ' + pct + '%; background: ' + statusColor + ';"></div></div><div class="muscle-bar-range" style="left: ' + rangeStart + '%; width: ' + Math.max(4, rangeEnd - rangeStart) + '%;"></div></div><div class="muscle-value" style="color: ' + statusColor + ';">' + v + '</div><div class="muscle-status">' + statusIcon + '</div></div>';
         html += '<div class="muscle-note">Range ' + level + ': ' + minW + '–' + maxW + ' set/sett</div>';
         html += '<div class="muscle-detail" id="md-' + mg.replace(/[^a-zA-Z0-9]/g,'') + '">';
         if (exDetails.length > 0) {
           exDetails.forEach(function(ex) {
-            html += '<div class="detail-ex"><span class="detail-day">' + ex.giorno + '</span> <strong>' + ex.nome + '</strong> <span class="detail-meta">' + ex.serie + '×' + ex.reps + ', RPE ' + ex.rpe + '</span></div>';
+            html += '<div class="detail-ex"><span class="detail-day">' + h(ex.giorno) + '</span> <strong>' + h(ex.nome) + '</strong> <span class="detail-meta">' + h(ex.serie) + '×' + h(ex.reps) + ', RPE ' + h(ex.rpe) + '</span></div>';
           });
         } else {
           html += '<div class="detail-ex muted">Nessun esercizio nei template</div>';
@@ -1279,7 +1321,7 @@
         html += '<div class="divider"></div><h3>Progresso per esercizio</h3>';
         html += '<select id="progress-ex-select" style="font-size: 14px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); width: 100%; background: var(--bg); color: var(--text); margin-bottom: 12px;">';
         progExercises.forEach(function(name) {
-          html += '<option value="' + name.replace(/"/g,'&quot;') + '"' + (name === selEx ? ' selected' : '') + '>' + name + '</option>';
+          html += '<option value="' + h(name) + '"' + (name === selEx ? ' selected' : '') + '>' + h(name) + '</option>';
         });
         html += '</select>';
         html += '<div id="progress-chart" style="width:100%;height:180px;">' + buildProgressChartSVG(selEx) + '</div>';
@@ -1396,7 +1438,7 @@
         html += '<div class="program-block mt-20"><h3>' + day.giorno + '</h3>';
         day.esercizi.forEach(function(ex) {
           var star = ex.nome.indexOf('Alzate laterali') >= 0 || ex.nome.indexOf('Calf') >= 0 || ex.nome === 'Standing Calf Raise' || ex.nome.indexOf('Shrug') >= 0 ? '<span class="program-star"> ★</span>' : '';
-          html += '<div class="program-ex"><span class="name">' + ex.nome + star + '</span><span class="detail">' + ex.serie + '×' + ex.reps + '</span><span class="detail">RPE ' + ex.rpeTarget + '</span><span class="detail">rec. ' + Math.floor(ex.recupero / 60) + '\'</span></div>';
+          html += '<div class="program-ex"><span class="name">' + h(ex.nome) + star + '</span><span class="detail">' + h(ex.serie) + '×' + h(ex.reps) + '</span><span class="detail">RPE ' + h(ex.rpeTarget) + '</span><span class="detail">rec. ' + Math.floor(ex.recupero / 60) + '\'</span></div>';
         });
         html += '</div>';
       });
@@ -1496,7 +1538,7 @@
           entries.sort(function(a, b) { return new Date(b.data) - new Date(a.data); });
           entries = entries.slice(0, 3);
           if (entries.length === 0) return;
-          html += '<div class="exercise-item"><div class="exercise-name">' + exName + '</div><div class="exercise-meta">' + entries.map(function(e) { return e.data + ': ' + e.peso_kg + 'kg × ' + e.ripetizioni; }).join('<br>') + '</div></div>';
+          html += '<div class="exercise-item"><div class="exercise-name">' + h(exName) + '</div><div class="exercise-meta">' + entries.map(function(e) { return h(e.data) + ': ' + h(e.peso_kg) + 'kg × ' + h(e.ripetizioni); }).join('<br>') + '</div></div>';
         });
       }
 
@@ -1515,7 +1557,7 @@
             vol += s.ripetizioni * s.peso_kg;
           });
         });
-        html += '<div class="card card-clickable" onclick="viewWorkoutDetail(\'' + w.id + '\')"><div class="flex justify-between"><span style="font-weight: 700;">' + w.giorno + '</span><span class="muted">' + w.data + '</span></div><div class="exercise-meta">' + Math.floor(w.durata_secondi / 60) + ' min · ' + vol + ' kg volume</div><button class="btn-delete-workout" data-id="' + w.id + '" onclick="event.stopPropagation();deleteWorkout(this.dataset.id)"><span class="material-symbols-outlined" style="font-size: 18px;">delete</span></button></div>';
+        html += '<div class="card card-clickable" onclick="viewWorkoutDetail(\'' + w.id + '\')"><div class="flex justify-between"><span style="font-weight: 700;">' + h(w.giorno) + '</span><span class="muted">' + h(w.data) + '</span></div><div class="exercise-meta">' + Math.floor(w.durata_secondi / 60) + ' min · ' + vol + ' kg volume</div><button class="btn-delete-workout" data-id="' + w.id + '" onclick="event.stopPropagation();deleteWorkout(this.dataset.id)"><span class="material-symbols-outlined" style="font-size: 18px;">delete</span></button></div>';
       });
       html += '<div class="modal-actions"><button class="btn btn-block" onclick="this.closest(\'.modal-overlay\').remove()">Chiudi</button></div></div>';
       var overlay = document.createElement('div');
@@ -1529,14 +1571,14 @@
       if (!workout) return;
       var totalVolume = 0;
       var totalSets = 0;
-      var html = '<div class="modal-box" style="max-height: 80vh; overflow-y: auto;"><h2>' + workout.giorno + '</h2><p class="muted mb-16">' + workout.data + ' · ' + Math.floor(workout.durata_secondi / 60) + ' minuti</p><div class="divider"></div>';
+      var html = '<div class="modal-box" style="max-height: 80vh; overflow-y: auto;"><h2>' + h(workout.giorno) + '</h2><p class="muted mb-16">' + h(workout.data) + ' · ' + Math.floor(workout.durata_secondi / 60) + ' minuti</p><div class="divider"></div>';
       workout.exercises.forEach(function(ex) {
         var doneSets = ex.sets.filter(function(s) { return s.completato; });
         if (doneSets.length === 0) return;
         var volume = doneSets.reduce(function(sum, s) { return sum + (s.ripetizioni * s.peso_kg); }, 0);
         totalVolume += volume;
         totalSets += doneSets.length;
-        html += '<div class="flex items-center justify-between" style="padding: 8px 0; border-bottom: 1px solid var(--border-light);"><div><div class="exercise-name" style="font-size: 14px;">' + ex.nome + '</div><div class="muted">' + doneSets.length + ' serie · ' + doneSets.map(function(s) { return s.ripetizioni + '×' + s.peso_kg + 'kg'; }).join(', ') + '</div></div><div class="accent-text" style="font-weight: 700;">' + volume + ' kg</div></div>';
+        html += '<div class="flex items-center justify-between" style="padding: 8px 0; border-bottom: 1px solid var(--border-light);"><div><div class="exercise-name" style="font-size: 14px;">' + h(ex.nome) + '</div><div class="muted">' + doneSets.length + ' serie · ' + doneSets.map(function(s) { return s.ripetizioni + '×' + s.peso_kg + 'kg'; }).join(', ') + '</div></div><div class="accent-text" style="font-weight: 700;">' + volume + ' kg</div></div>';
       });
       html += '<div class="divider"></div><div class="flex justify-between" style="font-size: 18px;"><div><span style="font-weight: 700;">' + totalVolume + ' kg</span> <span class="muted">volume</span></div><div><span style="font-weight: 700;">' + totalSets + '</span> <span class="muted">serie</span></div><div><span style="font-weight: 700;">' + Math.floor(workout.durata_secondi / 60) + '\'</span> <span class="muted">durata</span></div></div>';
       html += '<div class="divider"></div><div class="modal-actions"><button class="btn btn-ghost" style="color: var(--accent-dark);" onclick="deleteWorkout(\'' + id + '\'); this.closest(\'.modal-overlay\').remove()">Elimina allenamento</button><button class="btn btn-block" onclick="this.closest(\'.modal-overlay\').remove()">Chiudi</button></div></div>';
@@ -1597,7 +1639,7 @@
       var html = '<div><h1>Impostazioni</h1><h3>Modifica scheda</h3><div class="flex gap-8 mb-12" style="flex-wrap: wrap;">';
 
       state.templates.forEach(function(t, i) {
-        html += '<button class="btn btn-sm' + (i === editingDay ? ' btn-primary' : '') + '" onclick="selectEditingDay(' + i + ')">' + t.giorno + '</button>';
+        html += '<button class="btn btn-sm' + (i === editingDay ? ' btn-primary' : '') + '" onclick="selectEditingDay(' + i + ')">' + h(t.giorno) + '</button>';
       });
 
       var currentTemplate = state.templates[editingDay];
@@ -1606,7 +1648,7 @@
       currentTemplate.esercizi.forEach(function(ex, i) {
         var isFirst = i === 0;
         var isLast = i === currentTemplate.esercizi.length - 1;
-        html += '<div class="exercise-item"><div class="flex justify-between items-center"><div class="exercise-name">' + ex.nome + '</div><div class="flex gap-4"><button class="btn btn-ghost btn-sm" onclick="moveExercise(' + editingDay + ', ' + i + ', -1)"' + (isFirst ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_up</span></button><button class="btn btn-ghost btn-sm" onclick="moveExercise(' + editingDay + ', ' + i + ', 1)"' + (isLast ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_down</span></button><button class="btn btn-ghost btn-sm" onclick="removeExercise(' + editingDay + ', ' + i + ')"><span class="material-symbols-outlined" style="font-size: 16px;">close</span></button></div></div><div class="flex gap-8 mt-8" style="font-size: 13px;"><label>Serie <input type="number" name="serie-' + editingDay + '-' + i + '" value="' + ex.serie + '" min="1" max="10" style="width: 40px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'serie\', this.value)"></label><label>Reps <input type="text" name="reps-' + editingDay + '-' + i + '" value="' + ex.reps + '" style="width: 50px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'reps\', this.value)"></label><label>Recupero <input type="number" name="recupero-' + editingDay + '-' + i + '" value="' + Math.floor(ex.recupero / 60) + '" min="1" max="5" style="width: 40px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'recupero\', this.value * 60)"> min</label></div></div>';
+        html += '<div class="exercise-item"><div class="flex justify-between items-center"><div class="exercise-name">' + h(ex.nome) + '</div><div class="flex gap-4"><button class="btn btn-ghost btn-sm" onclick="moveExercise(' + editingDay + ', ' + i + ', -1)"' + (isFirst ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_up</span></button><button class="btn btn-ghost btn-sm" onclick="moveExercise(' + editingDay + ', ' + i + ', 1)"' + (isLast ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_down</span></button><button class="btn btn-ghost btn-sm" onclick="removeExercise(' + editingDay + ', ' + i + ')"><span class="material-symbols-outlined" style="font-size: 16px;">close</span></button></div></div><div class="flex gap-8 mt-8" style="font-size: 13px;"><label>Serie <input type="number" name="serie-' + editingDay + '-' + i + '" value="' + h(ex.serie) + '" min="1" max="10" style="width: 40px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'serie\', this.value)"></label><label>Reps <input type="text" name="reps-' + editingDay + '-' + i + '" value="' + h(ex.reps) + '" style="width: 50px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'reps\', this.value)"></label><label>Recupero <input type="number" name="recupero-' + editingDay + '-' + i + '" value="' + h(Math.floor(ex.recupero / 60)) + '" min="1" max="5" style="width: 40px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'recupero\', this.value * 60)"> min</label></div></div>';
       });
 
       html += '<button class="btn btn-block mt-16" onclick="showAddExercise()">+ Aggiungi esercizio</button><div class="divider mt-24"></div><h3>Fase</h3><div class="toggle-group mb-12">';
@@ -1702,6 +1744,43 @@
       a.click();
     }
 
+    function isValidImportedData(data) {
+      if (typeof data !== 'object' || data === null) return false;
+      if (data.templates !== undefined) {
+        if (!Array.isArray(data.templates)) return false;
+        for (var i = 0; i < data.templates.length; i++) {
+          var t = data.templates[i];
+          if (!t || typeof t.giorno !== 'string' || !Array.isArray(t.esercizi)) return false;
+          for (var j = 0; j < t.esercizi.length; j++) {
+            var ex = t.esercizi[j];
+            if (!ex || typeof ex.nome !== 'string' || typeof ex.serie !== 'number' || typeof ex.reps !== 'string' || typeof ex.recupero !== 'number') return false;
+          }
+        }
+      }
+      if (data.workoutHistory !== undefined) {
+        if (!Array.isArray(data.workoutHistory)) return false;
+        for (var k = 0; k < data.workoutHistory.length; k++) {
+          var w = data.workoutHistory[k];
+          if (!w || typeof w.id !== 'string' || typeof w.data !== 'string' || typeof w.giorno !== 'string' || !Array.isArray(w.exercises)) return false;
+          for (var m = 0; m < w.exercises.length; m++) {
+            var wex = w.exercises[m];
+            if (!wex || typeof wex.nome !== 'string' || !Array.isArray(wex.sets)) return false;
+            for (var n = 0; n < wex.sets.length; n++) {
+              if (!wex.sets[n] || typeof wex.sets[n].serie_numero !== 'number') return false;
+            }
+          }
+        }
+      }
+      if (data.lastWeights !== undefined) {
+        if (typeof data.lastWeights !== 'object' || data.lastWeights === null) return false;
+        for (var key in data.lastWeights) {
+          var lw = data.lastWeights[key];
+          if (typeof lw !== 'object' || lw === null) return false;
+        }
+      }
+      return true;
+    }
+
     function importData(event) {
       var file = event.target.files[0];
       if (!file) return;
@@ -1709,6 +1788,7 @@
       reader.onload = function(e) {
         try {
           var data = JSON.parse(e.target.result);
+          if (!isValidImportedData(data)) { alert('File importato non valido.'); return; }
           if (data.templates) state.templates = data.templates;
           if (data.workoutHistory) state.workoutHistory = data.workoutHistory;
           if (data.lastWeights) state.lastWeights = data.lastWeights;
@@ -1734,39 +1814,35 @@
     }
 
     async function syncWorkout(workout) {
-      if (!supabaseClient) return;
+      if (!supabaseClient || !supabaseSession) return;
       try {
-        var result = await supabaseClient.from('workouts').insert({
+        await supabaseClient.from('workouts').insert({
           id: workout.id, giorno: workout.giorno, data: workout.data, durata_secondi: workout.durata_secondi, completato: workout.completato,
-        }).select().single();
-        if (result.error) throw result.error;
+        });
         for (var ei = 0; ei < workout.exercises.length; ei++) {
           var ex = workout.exercises[ei];
           var exResult = await supabaseClient.from('exercises').insert({
             workout_id: workout.id, nome_esercizio: ex.nome, ordine: ei,
           }).select().single();
-          if (exResult.error) throw exResult.error;
           for (var si = 0; si < ex.sets.length; si++) {
             var s = ex.sets[si];
-            var setResult = await supabaseClient.from('sets').insert({
+            await supabaseClient.from('sets').insert({
               exercise_id: exResult.data.id, serie_numero: s.serie_numero, ripetizioni: s.ripetizioni, peso_kg: s.peso_kg, rir: s.rir, completato: s.completato,
             });
-            if (setResult.error) throw setResult.error;
           }
         }
       } catch (e) {
-        console.warn('Supabase sync failed, data saved locally:', e);
+        if (e && e.message) console.warn('Sync fallito (dati salvati in locale):', e.message);
       }
     }
 
     async function loadWorkoutsFromSupabase() {
-      if (!supabaseClient) return [];
+      if (!supabaseClient || !supabaseSession) return [];
       try {
         var result = await supabaseClient.from('workouts').select('*').order('data', { ascending: false });
         if (result.error) throw result.error;
         return result.data;
       } catch (e) {
-        console.warn('Supabase load failed:', e);
         return [];
       }
     }
