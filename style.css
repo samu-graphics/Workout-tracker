@@ -1,3 +1,30 @@
+/* === FONTS === */
+@import url('https://fonts.googleapis.com/css2?family=Mozilla+Text:wght@400;500;600;700&display=swap');
+
+@font-face {
+  font-family: 'Mattone';
+  src: url('fonts/Mattone-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Mattone';
+  src: url('fonts/Mattone-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Mattone';
+  src: url('fonts/Mattone-Black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* === DESIGN TOKENS === */
 :root {
   /* Colors - Light */
@@ -27,8 +54,8 @@
   --accent-dark: var(--color-accent-hover);
 
   /* Typography */
-  --font-heading: 'IBM Plex Serif', Georgia, serif;
-  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: 'Mattone', sans-serif;
+  --font-body: 'Mozilla Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   --text-xs: 12px;
   --text-sm: 14px;
@@ -211,7 +238,7 @@
 
     h1 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.5px; margin-bottom: var(--space-4); font-family: var(--font-heading); }
     h2 { font-size: 18px; font-weight: 700; margin-bottom: var(--space-3); font-family: var(--font-heading); }
-    h3 { font-size: var(--text-sm); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--color-text-secondary); margin-bottom: var(--space-2); }
+    h3 { font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.5px; color: var(--color-text-secondary); margin-bottom: var(--space-2); }
     .muted { color: var(--color-text-secondary); font-size: 13px; }
 
     .btn { display: inline-flex; align-items: center; justify-content: center; padding: var(--space-3) var(--space-6); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border: 1px solid var(--color-text-primary); background: transparent; color: var(--color-text-primary); cursor: pointer; -webkit-appearance: none; border-radius: var(--radius-md); transition: all var(--transition-fast); }
@@ -323,7 +350,7 @@
 
     .chart-bar { height: 24px; background: var(--color-accent); margin-bottom: var(--space-1); min-width: var(--space-1); border-radius: 2px; }
 
-    .workout-sticky { position: sticky; top: 0; background: var(--color-bg); z-index: 10; margin: -20px -20px 12px; padding: var(--space-5) var(--space-5) 0; }
+    .workout-sticky { position: sticky; top: calc(-1 * var(--space-5)); background: var(--color-bg); z-index: 10; margin: -20px -20px 12px; padding: var(--space-5) var(--space-5) 0; }
     .workout-scroll { }
 
     @media (min-width: 600px) {

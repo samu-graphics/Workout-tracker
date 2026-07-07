@@ -437,7 +437,7 @@
             '<span class="today-day">' + todayName + '</span>' +
             '<span class="today-status badge badge-' + statusClass + '">' + statusLabel + '</span>' +
           '</div>' +
-          '<h2 class="today-workout-name">' + escapeHtml(today.nome) + '</h2>' +
+          '<h2 class="today-workout-name">' + escapeHtml(today.nome || today.giorno) + '</h2>' +
           '<p class="today-exercises-count">' + today.esercizi.length + ' esercizi</p>';
 
         if (!isCompleted) {
@@ -462,7 +462,7 @@
 
         html += '<div class="card workout-card" data-workout="' + escapeHtml(t.giorno) + '">' +
           '<div class="workout-card-header">' +
-            '<span class="workout-card-name">' + escapeHtml(t.nome) + '</span>' +
+            '<span class="workout-card-name">' + escapeHtml(t.nome || t.giorno) + '</span>' +
             '<span class="badge">' + t.esercizi.length + ' es.</span>' +
           '</div>' +
           '<div class="workout-card-day">' +
@@ -874,21 +874,18 @@
       var isLastSet = state.currentSet + 1 >= currentEx.sets.length;
       if (isLastSet) {
         var hasMoreExercises = exIdx + 1 < state.activeWorkout.exercises.length;
-        if (hasMoreExercises && !confirm(currentEx.nome + ' completato. Passare al prossimo esercizio?')) {
+        if (hasMoreExercises) {
           state.restExerciseIndex = exIdx;
+          state.currentExercise++;
+          state.currentSet = 0;
+          state.restTimerStartTime = Date.now();
+          state.restTimerTotal = currentEx.recupero;
+          saveCache();
           renderAllenamento();
-          return;
-        }
-        state.restExerciseIndex = exIdx;
-        state.currentExercise++;
-        state.currentSet = 0;
-        state.restTimerStartTime = Date.now();
-        state.restTimerTotal = currentEx.recupero;
-        saveCache();
-        renderAllenamento();
-        startRestTimer(currentEx.recupero);
-        if (state.currentExercise >= state.activeWorkout.exercises.length) {
-          finishWorkout();
+          startRestTimer(currentEx.recupero);
+          if (state.currentExercise >= state.activeWorkout.exercises.length) {
+            finishWorkout();
+          }
         }
         return;
       }
