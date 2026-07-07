@@ -35,13 +35,20 @@ CREATE TABLE workout_template (
   ordine INT NOT NULL
 );
 
--- RLS: allow all access for single-user app (anon key)
-ALTER TABLE workouts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE exercises ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE workout_template ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "anon all workouts" ON workouts FOR ALL USING (true);
-CREATE POLICY "anon all exercises" ON exercises FOR ALL USING (true);
-CREATE POLICY "anon all sets" ON sets FOR ALL USING (true);
-CREATE POLICY "anon all template" ON workout_template FOR ALL USING (true);
+-- Nota: Supabase è stato rimosso dall'app. Questo schema è solo di riferimento.
+-- Se in futuro volessi ripristinarlo, usa policy restrittive:
+--
+-- ALTER TABLE workouts ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE exercises ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE sets ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE workout_template ENABLE ROW LEVEL SECURITY;
+--
+-- Solo INSERT e SELECT per l'anon key (UPDATE/DELETE non concessi):
+-- CREATE POLICY "anon insert workouts" ON workouts FOR INSERT WITH CHECK (true);
+-- CREATE POLICY "anon select workouts" ON workouts FOR SELECT USING (true);
+-- CREATE POLICY "anon insert exercises" ON exercises FOR INSERT WITH CHECK (true);
+-- CREATE POLICY "anon select exercises" ON exercises FOR SELECT USING (true);
+-- CREATE POLICY "anon insert sets" ON sets FOR INSERT WITH CHECK (true);
+-- CREATE POLICY "anon select sets" ON sets FOR SELECT USING (true);
+-- CREATE POLICY "anon select template" ON workout_template FOR SELECT USING (true);
+-- CREATE POLICY "anon insert template" ON workout_template FOR INSERT WITH CHECK (true);

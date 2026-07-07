@@ -1,12 +1,6 @@
-    const SUPABASE_URL = 'https://your-project.supabase.co';
-    const SUPABASE_ANON_KEY = 'your-anon-key';
-    var supabaseClient = null;
-    try {
-      if (typeof supabase !== 'undefined' && !SUPABASE_URL.includes('your-project')) {
-        supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-      }
-    } catch(e) {
-      console.warn('Supabase sync not available, running offline:', e);
+    function escapeHtml(str) {
+      if (typeof str !== 'string') return str;
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
     }
 
     const state = {
@@ -15,12 +9,12 @@
       currentExercise: 0,
       currentSet: 0,
       editingDay: 0,
+      programmaEditMode: false,
       templates: [],
       lastWeights: {},
       workoutHistory: [],
       timerInterval: null,
       timerSeconds: 0,
-      programmaDay: 0,
       workoutTimerInterval: null,
       workoutStartTime: null,
       restExerciseIndex: -1,
@@ -202,9 +196,9 @@
     function renderEmptyState(icon, title, message, ctaText, ctaAction) {
       return '<div class="empty-state">' +
         '<span class="material-symbols-outlined empty-icon">' + icon + '</span>' +
-        '<h3 class="empty-title">' + title + '</h3>' +
-        '<p class="empty-message">' + message + '</p>' +
-        (ctaText ? '<button class="btn btn-primary" onclick="' + ctaAction + '">' + ctaText + '</button>' : '') +
+        '<h3 class="empty-title">' + escapeHtml(title) + '</h3>' +
+        '<p class="empty-message">' + escapeHtml(message) + '</p>' +
+        (ctaText ? '<button class="btn btn-primary" onclick="' + ctaAction + '">' + escapeHtml(ctaText) + '</button>' : '') +
       '</div>';
     }
 
@@ -215,7 +209,7 @@
       var toast = document.createElement('div');
       toast.id = 'toast';
       toast.className = 'toast';
-      toast.innerHTML = '<span class="toast-message">' + message + '</span>';
+      toast.innerHTML = '<span class="toast-message">' + escapeHtml(message) + '</span>';
       document.body.appendChild(toast);
       requestAnimationFrame(function() { toast.classList.add('visible'); });
       setTimeout(function() {
@@ -230,7 +224,7 @@
       var toast = document.createElement('div');
       toast.id = 'toast';
       toast.className = 'toast';
-      toast.innerHTML = '<span class="toast-message">' + message + '</span>' +
+      toast.innerHTML = '<span class="toast-message">' + escapeHtml(message) + '</span>' +
         '<button class="toast-undo" id="toast-undo-btn">Annulla</button>';
       document.body.appendChild(toast);
       requestAnimationFrame(function() { toast.classList.add('visible'); });
@@ -284,6 +278,16 @@
     document.getElementById('tab-bar').addEventListener('click', (e) => {
       const btn = e.target.closest('.tab-btn');
       if (btn) switchView(btn.dataset.view);
+    });
+
+    document.addEventListener('click', function(e) {
+      var el = e.target.closest('[data-workout]');
+      if (el) {
+        var action = el.dataset.action || 'startWorkout';
+        if (action === 'startWorkout') startWorkout(el.dataset.workout);
+        else if (action === 'riprendiAllenamento') riprendiAllenamento();
+        return;
+      }
     });
 
     const DEFAULT_TEMPLATE = [
@@ -424,11 +428,12 @@
             '<span class="today-day">' + todayName + '</span>' +
             '<span class="today-status badge badge-' + statusClass + '">' + statusLabel + '</span>' +
           '</div>' +
-          '<h2 class="today-workout-name">' + today.nome + '</h2>' +
+          '<h2 class="today-workout-name">' + escapeHtml(today.nome) + '</h2>' +
           '<p class="today-exercises-count">' + today.esercizi.length + ' esercizi</p>';
 
         if (!isCompleted) {
-          html += '<button class="btn btn-primary btn-block" onclick="' + (isActive ? 'riprendiAllenamento()' : "startWorkout('" + today.giorno + "')") + '">' +
+          var btnAction = isActive ? 'riprendiAllenamento' : 'startWorkout';
+          html += '<button class="btn btn-primary btn-block" data-action="' + btnAction + '" data-workout="' + escapeHtml(today.giorno) + '">' +
             '<span class="material-symbols-outlined">' + (isActive ? 'play_arrow' : 'fitness_center') + '</span> ' + (isActive ? 'Riprendi' : 'Inizia allenamento') +
           '</button>';
         }
@@ -446,17 +451,17 @@
         var lastDone = state.workoutHistory.filter(function(w) { return w.giorno === t.giorno; });
         var lastDate = lastDone.length > 0 ? lastDone[lastDone.length - 1].data : null;
 
-        html += '<div class="card workout-card" onclick="startWorkout(\'' + t.giorno + '\')">' +
+        html += '<div class="card workout-card" data-workout="' + escapeHtml(t.giorno) + '">' +
           '<div class="workout-card-header">' +
-            '<span class="workout-card-name">' + t.nome + '</span>' +
+            '<span class="workout-card-name">' + escapeHtml(t.nome) + '</span>' +
             '<span class="badge">' + t.esercizi.length + ' es.</span>' +
           '</div>' +
           '<div class="workout-card-day">' +
-            '<span class="material-symbols-outlined">calendar_today</span> ' + dayName +
+            '<span class="material-symbols-outlined">calendar_today</span> ' + escapeHtml(dayName) +
           '</div>';
 
         if (lastDate) {
-          html += '<div class="workout-card-last">Ultimo: ' + formatDate(lastDate) + '</div>';
+          html += '<div class="workout-card-last">Ultimo: ' + escapeHtml(formatDate(lastDate)) + '</div>';
         }
 
         html += '</div>';
@@ -569,7 +574,7 @@
       var html = '';
       html += '<div class="workout-sticky">';
       var faseLabel = state.fase === 'deload' ? 'Deload' : 'Fase ' + state.fase;
-      html += '<div class="flex items-center justify-between mb-8"><button class="workout-header-btn" onclick="exitWorkout()"><span class="material-symbols-outlined">arrow_back</span> ' + state.activeWorkout.giorno + '</button><div class="flex items-center gap-8"><span class="fase-badge">' + faseLabel + '</span><div class="timer"><span class="material-symbols-outlined" style="font-size: 16px; color: var(--text-secondary);">schedule</span><span id="timer-display" class="workout-sticky-timer">' + formatTime(Math.floor((Date.now() - state.workoutStartTime) / 1000)) + '</span></div><button class="btn btn-ghost btn-sm" style="color: var(--accent);" onclick="if(confirm(\'Terminare l\\\'allenamento?\'))finishWorkout()">Fine</button></div></div>';
+      html += '<div class="flex items-center justify-between mb-8"><button class="workout-header-btn" onclick="exitWorkout()"><span class="material-symbols-outlined">arrow_back</span> ' + escapeHtml(state.activeWorkout.giorno) + '</button><div class="flex items-center gap-8"><span class="fase-badge">' + escapeHtml(faseLabel) + '</span><div class="timer"><span class="material-symbols-outlined" style="font-size: 16px; color: var(--text-secondary);">schedule</span><span id="timer-display" class="workout-sticky-timer">' + formatTime(Math.floor((Date.now() - state.workoutStartTime) / 1000)) + '</span></div><button class="btn btn-ghost btn-sm" style="color: var(--accent);" onclick="if(confirm(\'Terminare l\\\'allenamento?\'))finishWorkout()">Fine</button></div></div>';
 
       // Navigation prev/next
       html += '<div class="flex items-center gap-8 mb-12">';
@@ -666,7 +671,7 @@
         if (!isCurrentEx) exClasses += ' clickable';
 
         html += '<div class="' + exClasses + '"' + (!isCurrentEx ? ' onclick="navigateToExercise(' + exIdx + ')"' : '') + '>';
-        html += '<div class="flex items-center justify-between mb-8"><div><div class="exercise-name">' + (isSkipped ? '<span class="muted">Saltato: </span>' : '') + ex.nome + (progressionPill ? ' <span class="progression-pill">📈 ' + progressionPill + '</span>' : '') + '</div><div class="exercise-meta">' + ex.serieTarget + ' serie · target ' + targetReps + ' reps · RPE ' + (templateEx ? templateEx.rpeTarget : '') + (allSetsDone ? ' <span class="material-symbols-outlined accent-text" style="font-size: 14px;">check_circle</span>' : '') + '</div></div><div style="display: flex; gap: 4px;">' + (EXERCISE_NOTES[ex.nome] ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleNotes(' + exIdx + ')"><span class="material-symbols-outlined" style="font-size: 16px;">info</span></button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();skipExercise(' + exIdx + ')">Salta</button>' : '') + '</div></div>';
+        html += '<div class="flex items-center justify-between mb-8"><div><div class="exercise-name">' + (isSkipped ? '<span class="muted">Saltato: </span>' : '') + escapeHtml(ex.nome) + (progressionPill ? ' <span class="progression-pill">📈 ' + progressionPill + '</span>' : '') + '</div><div class="exercise-meta">' + escapeHtml(ex.serieTarget) + ' serie · target ' + escapeHtml(targetReps) + ' reps · RPE ' + (templateEx ? escapeHtml(templateEx.rpeTarget) : '') + (allSetsDone ? ' <span class="material-symbols-outlined accent-text" style="font-size: 14px;">check_circle</span>' : '') + '</div></div><div style="display: flex; gap: 4px;">' + (EXERCISE_NOTES[ex.nome] ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleNotes(' + exIdx + ')"><span class="material-symbols-outlined" style="font-size: 16px;">info</span></button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();skipExercise(' + exIdx + ')">Salta</button>' : '') + '</div></div>';
 
         // Notes panel (expandable)
         if (EXERCISE_NOTES[ex.nome]) {
@@ -686,9 +691,9 @@
           var pesoVal = set.peso_kg || (isCurrentSet && last ? last.peso : '');
           var rirVal = set.rir || (isCurrentSet && last ? last.rir : '');
 
-          html += '<div class="set-cell"><input type="number" id="input-reps-' + exIdx + '-' + setIdx + '" value="' + repsVal + '" min="1" max="30" style="width: 48px;" placeholder="' + (last && isCurrentSet ? last.reps : '') + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'ripetizioni\',this.value)"' + '></div>';
-          html += '<div class="set-cell"><input type="number" id="input-peso-' + exIdx + '-' + setIdx + '" value="' + pesoVal + '" min="0" step="0.5" style="width: 64px;" placeholder="' + (last && isCurrentSet ? last.peso + 'kg' : '') + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'peso_kg\',this.value)"' + '></div>';
-          html += '<div class="set-cell"><input type="number" id="input-rir-' + exIdx + '-' + setIdx + '" value="' + rirVal + '" min="6.5" max="10" step="0.5" style="width: 46px;" placeholder="' + (last && isCurrentSet ? last.rir : (templateEx ? templateEx.rpeTarget : '')) + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'rir\',this.value)"' + '></div>';
+          html += '<div class="set-cell"><input type="number" id="input-reps-' + exIdx + '-' + setIdx + '" value="' + escapeHtml(repsVal) + '" min="1" max="30" style="width: 48px;" placeholder="' + (last && isCurrentSet ? escapeHtml(last.reps) : '') + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'ripetizioni\',this.value)"' + '></div>';
+          html += '<div class="set-cell"><input type="number" id="input-peso-' + exIdx + '-' + setIdx + '" value="' + escapeHtml(pesoVal) + '" min="0" step="0.5" style="width: 64px;" placeholder="' + (last && isCurrentSet ? escapeHtml(last.peso) + 'kg' : '') + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'peso_kg\',this.value)"' + '></div>';
+          html += '<div class="set-cell"><input type="number" id="input-rir-' + exIdx + '-' + setIdx + '" value="' + escapeHtml(rirVal) + '" min="6.5" max="10" step="0.5" style="width: 46px;" placeholder="' + (last && isCurrentSet ? escapeHtml(last.rir) : (templateEx ? escapeHtml(templateEx.rpeTarget) : '')) + '"' + (!isCurrentSet && !set.completato ? ' disabled' : '') + ' onblur="updateSet(' + exIdx + ',' + setIdx + ',\'rir\',this.value)"' + '></div>';
 
           html += '<div class="set-cell">';
           if (set.completato) {
@@ -851,6 +856,7 @@
           if (timerCard) timerCard.classList.add('pulse');
           try {
             var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            if (ctx.state === 'suspended') ctx.resume();
             var osc = ctx.createOscillator();
             osc.type = 'sine';
             osc.frequency.value = 800;
@@ -861,6 +867,8 @@
           try { navigator.vibrate(200); } catch(e) {}
           if (Notification.permission === 'granted') {
             new Notification('Recupero finito!', { body: 'Tempo di iniziare la prossima serie.' });
+          } else if (Notification.permission === 'default') {
+            Notification.requestPermission();
           }
         }
       }, 1000);
@@ -921,7 +929,6 @@
       state.currentExercise = 0;
       state.currentSet = 0;
       saveCache();
-      syncWorkout(workoutRecord);
       renderRiepilogo(workoutRecord);
       switchView('riepilogo');
     }
@@ -930,7 +937,7 @@
       var view = document.getElementById('view-riepilogo');
       var totalVolume = 0;
       var totalSets = 0;
-      var html = '<div><h1>Allenamento completato</h1><p class="muted mb-16">' + workout.giorno + ' · ' + Math.floor(workout.durata_secondi / 60) + ' minuti</p><div class="divider"></div>';
+      var html = '<div><h1>Allenamento completato</h1><p class="muted mb-16">' + escapeHtml(workout.giorno) + ' · ' + Math.floor(workout.durata_secondi / 60) + ' minuti</p><div class="divider"></div>';
 
       workout.exercises.forEach(function(ex) {
         var doneSets = ex.sets.filter(function(s) { return s.completato; });
@@ -938,7 +945,7 @@
         var volume = doneSets.reduce(function(sum, s) { return sum + (s.ripetizioni * s.peso_kg); }, 0);
         totalVolume += volume;
         totalSets += doneSets.length;
-        html += '<div class="flex items-center justify-between" style="padding: 8px 0; border-bottom: 1px solid var(--border-light);"><div><div class="exercise-name" style="font-size: 14px;">' + ex.nome + '</div><div class="muted">' + doneSets.length + ' serie · ' + doneSets.map(function(s) { return s.ripetizioni + '×' + s.peso_kg + 'kg'; }).join(', ') + '</div></div><div class="accent-text" style="font-weight: 700;">' + volume + ' kg</div></div>';
+        html += '<div class="flex items-center justify-between" style="padding: 8px 0; border-bottom: 1px solid var(--border-light);"><div><div class="exercise-name" style="font-size: 14px;">' + escapeHtml(ex.nome) + '</div><div class="muted">' + doneSets.length + ' serie · ' + doneSets.map(function(s) { return escapeHtml(s.ripetizioni) + '×' + escapeHtml(s.peso_kg) + 'kg'; }).join(', ') + '</div></div><div class="accent-text" style="font-weight: 700;">' + volume + ' kg</div></div>';
       });
 
       html += '<div class="divider"></div><div class="flex justify-between" style="font-size: 18px;"><div><span style="font-weight: 700;">' + totalVolume + ' kg</span> <span class="muted">volume</span></div><div><span style="font-weight: 700;">' + totalSets + '</span> <span class="muted">serie</span></div><div><span style="font-weight: 700;">' + Math.floor(workout.durata_secondi / 60) + '\'</span> <span class="muted">durata</span></div></div><div class="divider"></div><button class="btn btn-block mt-16" onclick="afterRiepilogo()">Chiudi</button></div>';
@@ -1064,13 +1071,15 @@
     function getWeeklyVolumeHistory() {
       var weeks = {};
       state.workoutHistory.forEach(function(w) {
+        var exercises = w.exercises || w.esercizi || [];
         var d = new Date(w.data);
         var weekStart = new Date(d);
         weekStart.setDate(d.getDate() - d.getDay() + 1);
         var key = weekStart.toISOString().split('T')[0];
         if (!weeks[key]) weeks[key] = { settimana: key, volume: 0 };
-        weeks[key].volume += w.esercizi.reduce(function(sum, e) {
-          return sum + e.serie.filter(function(s) { return s.completato; }).length;
+        weeks[key].volume += exercises.reduce(function(sum, e) {
+          var sets = e.sets || e.serie || [];
+          return sum + sets.filter(function(s) { return s.completato; }).length;
         }, 0);
       });
       var result = [];
@@ -1238,7 +1247,7 @@
         html += '<div class="muscle-detail" id="md-' + mg.replace(/[^a-zA-Z0-9]/g,'') + '">';
         if (exDetails.length > 0) {
           exDetails.forEach(function(ex) {
-            html += '<div class="detail-ex"><span class="detail-day">' + ex.giorno + '</span> <strong>' + ex.nome + '</strong> <span class="detail-meta">' + ex.serie + '×' + ex.reps + ', RPE ' + ex.rpe + '</span></div>';
+            html += '<div class="detail-ex"><span class="detail-day">' + escapeHtml(ex.giorno) + '</span> <strong>' + escapeHtml(ex.nome) + '</strong> <span class="detail-meta">' + escapeHtml(ex.serie) + '×' + escapeHtml(ex.reps) + ', RPE ' + escapeHtml(ex.rpe) + '</span></div>';
           });
         } else {
           html += '<div class="detail-ex muted">Nessun esercizio nei template</div>';
@@ -1264,7 +1273,7 @@
         html += '<div class="divider"></div><h3>Progresso per esercizio</h3>';
         html += '<select id="progress-ex-select" style="font-size: 14px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); width: 100%; background: var(--bg); color: var(--text); margin-bottom: 12px;">';
         progExercises.forEach(function(name) {
-          html += '<option value="' + name.replace(/"/g,'&quot;') + '"' + (name === selEx ? ' selected' : '') + '>' + name + '</option>';
+          html += '<option value="' + escapeHtml(name) + '"' + (name === selEx ? ' selected' : '') + '>' + escapeHtml(name) + '</option>';
         });
         html += '</select>';
         html += '<div id="progress-chart" style="width:100%;height:180px;">' + buildProgressChartSVG(selEx) + '</div>';
@@ -1442,71 +1451,118 @@
     function renderProgramma() {
       var container = document.getElementById('view-programma');
       var templates = state.templates;
-      var currentDay = state.programmaDay || 0;
+      var dayIndex = state.editingDay;
       var dayNames = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì'];
+      var isEditing = state.programmaEditMode;
 
       var faseLabel = state.fase === 'deload' ? 'Deload' : 'Fase ' + state.fase;
-      var html = '<div class="view-header">' +
-        '<h1 class="view-title">Programma</h1>' +
-        '<span class="fase-badge">' + faseLabel + '</span>' +
+      var html = '<div class="view-header flex items-center justify-between">' +
+        '<h1 class="view-title" style="margin:0;">Programma</h1>' +
+        '<div class="flex items-center gap-8">' +
+          '<span class="fase-badge">' + escapeHtml(faseLabel) + '</span>' +
+          '<button class="btn btn-ghost btn-sm" onclick="toggleProgrammaEdit()">' +
+            '<span class="material-symbols-outlined">' + (isEditing ? 'done' : 'edit') + '</span>' +
+          '</button>' +
+        '</div>' +
       '</div>';
 
-      // Day tabs
-      html += '<div class="programma-tabs">';
-      templates.forEach(function(t, i) {
-        var isActive = i === currentDay;
-        var oggi = new Date().toISOString().split('T')[0];
-        var isDone = state.workoutHistory.some(function(w) {
-          return w.giorno === t.giorno && w.data === oggi;
+      if (isEditing) {
+        // === EDIT MODE ===
+        html += '<div class="flex gap-8 mb-12" style="flex-wrap: wrap;">';
+        templates.forEach(function(t, i) {
+          html += '<button class="btn btn-sm' + (i === dayIndex ? ' btn-primary' : '') + '" onclick="setEditingDay(' + i + ')">' + escapeHtml(t.giorno) + '</button>';
         });
-        html += '<button class="programma-tab' + (isActive ? ' active' : '') + '" onclick="setProgrammaDay(' + i + ')">' +
-          '<span class="programma-tab-day">' + dayNames[i] + '</span>' +
-          '<span class="programma-tab-name">' + (t.nome || t.giorno) + '</span>' +
-          (isDone ? '<span class="material-symbols-outlined text-success" style="font-size:16px">check_circle</span>' : '') +
-        '</button>';
-      });
-      html += '</div>';
+        html += '</div>';
 
-      // Selected day exercise detail
-      var template = templates[currentDay];
-      if (template) {
-        html += '<div class="programma-detail">';
-        template.esercizi.forEach(function(ex) {
-          var recuperoMin = Math.round(ex.recupero / 60);
-          html += '<div class="programma-exercise">' +
-            '<div class="programma-exercise-name">' + ex.nome + '</div>' +
-            '<div class="programma-exercise-details">' +
-              '<span class="badge badge-sets">' + ex.serie + '×' + ex.reps + '</span>' +
-              '<span class="badge badge-rest">Rec ' + recuperoMin + '\'</span>' +
-              (ex.rpeTarget ? '<span class="badge badge-rpe">RPE ' + ex.rpeTarget + '</span>' : '') +
-            '</div>' +
+        var template = templates[dayIndex];
+        if (template) {
+          html += '<div class="programma-detail">';
+          template.esercizi.forEach(function(ex, i) {
+            var isFirst = i === 0;
+            var isLast = i === template.esercizi.length - 1;
+            html += '<div class="exercise-item">' +
+              '<div class="flex justify-between items-center">' +
+                '<div class="exercise-name">' + escapeHtml(ex.nome) + '</div>' +
+                '<div class="flex gap-4">' +
+                  '<button class="btn btn-ghost btn-sm" onclick="moveExercise(' + dayIndex + ', ' + i + ', -1)"' + (isFirst ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_up</span></button>' +
+                  '<button class="btn btn-ghost btn-sm" onclick="moveExercise(' + dayIndex + ', ' + i + ', 1)"' + (isLast ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_down</span></button>' +
+                  '<button class="btn btn-ghost btn-sm" onclick="removeExercise(' + dayIndex + ', ' + i + ')"><span class="material-symbols-outlined" style="font-size: 16px;">close</span></button>' +
+                '</div>' +
+              '</div>' +
+              '<div class="flex gap-8 mt-8" style="font-size: 13px;">' +
+                '<label>Serie <input type="number" name="serie-' + dayIndex + '-' + i + '" value="' + escapeHtml(ex.serie) + '" min="1" max="10" style="width: 40px;" onchange="updateExerciseParam(' + dayIndex + ', ' + i + ', \'serie\', this.value)"></label>' +
+                '<label>Reps <input type="text" name="reps-' + dayIndex + '-' + i + '" value="' + escapeHtml(ex.reps) + '" style="width: 50px;" onchange="updateExerciseParam(' + dayIndex + ', ' + i + ', \'reps\', this.value)"></label>' +
+                '<label>Recupero <input type="number" name="recupero-' + dayIndex + '-' + i + '" value="' + Math.floor(ex.recupero / 60) + '" min="1" max="5" style="width: 40px;" onchange="updateExerciseParam(' + dayIndex + ', ' + i + ', \'recupero\', this.value * 60)"> min</label>' +
+              '</div>' +
+            '</div>';
+          });
+          html += '</div>';
+          html += '<button class="btn btn-block mt-8" onclick="showAddExercise()">+ Aggiungi esercizio</button>';
+        }
+
+        html += '<div class="divider mt-24"></div><h3>Fase</h3><div class="toggle-group mb-12">';
+        html += '<button class="toggle-btn' + (state.fase === 1 ? ' active' : '') + '" onclick="setFase(1)">Fase 1</button>';
+        html += '<button class="toggle-btn' + (state.fase === 2 ? ' active' : '') + '" onclick="setFase(2)">Fase 2</button>';
+        html += '<button class="toggle-btn' + (state.fase === 3 ? ' active' : '') + '" onclick="setFase(3)">Fase 3</button>';
+        html += '<button class="toggle-btn' + (state.fase === 'deload' ? ' active' : '') + '" onclick="setFase(\'deload\')">Deload</button>';
+        html += '</div><p class="muted" style="font-size: 11px;">Fase 2: alzate laterali +1 serie | Fase 3: anche shrug +1 serie | Deload: -50% serie</p>';
+
+      } else {
+        // === VIEW MODE ===
+        html += '<div class="programma-tabs">';
+        templates.forEach(function(t, i) {
+          var isActive = i === dayIndex;
+          var oggi = new Date().toISOString().split('T')[0];
+          var isDone = state.workoutHistory.some(function(w) {
+            return w.giorno === t.giorno && w.data === oggi;
+          });
+          html += '<button class="programma-tab' + (isActive ? ' active' : '') + '" onclick="setEditingDay(' + i + ')">' +
+            '<span class="programma-tab-day">' + dayNames[i] + '</span>' +
+            '<span class="programma-tab-name">' + escapeHtml(t.nome || t.giorno) + '</span>' +
+            (isDone ? '<span class="material-symbols-outlined text-success" style="font-size:16px">check_circle</span>' : '') +
+          '</button>';
+        });
+        html += '</div>';
+
+        var template = templates[dayIndex];
+        if (template) {
+          html += '<div class="programma-detail">';
+          template.esercizi.forEach(function(ex) {
+            var recuperoMin = Math.round(ex.recupero / 60);
+            html += '<div class="programma-exercise">' +
+              '<div class="programma-exercise-name">' + escapeHtml(ex.nome) + '</div>' +
+              '<div class="programma-exercise-details">' +
+                '<span class="badge badge-sets">' + escapeHtml(ex.serie) + '×' + escapeHtml(ex.reps) + '</span>' +
+                '<span class="badge badge-rest">Rec ' + recuperoMin + '\'</span>' +
+                (ex.rpeTarget ? '<span class="badge badge-rpe">RPE ' + escapeHtml(ex.rpeTarget) + '</span>' : '') +
+              '</div>' +
+            '</div>';
+          });
+          html += '</div>';
+        }
+
+        html += '<h3 class="section-title" style="margin-top:24px;">Schema settimanale</h3>' +
+          '<div class="programma-week-grid">';
+        dayNames.forEach(function(name, i) {
+          var t = templates[i];
+          var oggi = new Date().toISOString().split('T')[0];
+          var isDone = t ? state.workoutHistory.some(function(w) {
+            return w.giorno === t.giorno && w.data === oggi;
+          }) : false;
+          html += '<div class="programma-week-cell' + (i === dayIndex ? ' active' : '') + '" onclick="setEditingDay(' + i + ')">' +
+            '<div class="week-cell-day">' + name.substring(0, 3) + '</div>' +
+            '<div class="week-cell-name">' + (t ? escapeHtml(t.nome || t.giorno) : '—') + '</div>' +
+            (isDone ? '<div class="week-cell-check"><span class="material-symbols-outlined" style="font-size:14px;">check_circle</span></div>' : '') +
           '</div>';
         });
         html += '</div>';
       }
 
-      // Weekly overview grid
-      html += '<h3 class="section-title" style="margin-top:24px;">Schema settimanale</h3>' +
-        '<div class="programma-week-grid">';
-      dayNames.forEach(function(name, i) {
-        var t = templates[i];
-        var oggi = new Date().toISOString().split('T')[0];
-        var isDone = t ? state.workoutHistory.some(function(w) {
-          return w.giorno === t.giorno && w.data === oggi;
-        }) : false;
-        html += '<div class="programma-week-cell' + (i === currentDay ? ' active' : '') + '" onclick="setProgrammaDay(' + i + ')">' +
-          '<div class="week-cell-day">' + name.substring(0, 3) + '</div>' +
-          '<div class="week-cell-name">' + (t ? (t.nome || t.giorno) : '—') + '</div>' +
-          (isDone ? '<div class="week-cell-check"><span class="material-symbols-outlined" style="font-size:14px;">check_circle</span></div>' : '') +
-        '</div>';
-      });
-      html += '</div>';
-
       container.innerHTML = html;
     }
 
-    function setProgrammaDay(index) {
-      state.programmaDay = index;
+    function toggleProgrammaEdit() {
+      state.programmaEditMode = !state.programmaEditMode;
       renderProgramma();
     }
 
@@ -1596,7 +1652,7 @@
           var volume = doneSets.reduce(function(sum, s) { return sum + (s.ripetizioni * s.peso_kg); }, 0);
           totalVolume += volume;
           totalSets += doneSets.length;
-          html += '<div style="padding: 4px 0; font-size: 12px;"><span style="font-weight: 600;">' + ex.nome + '</span> ' + doneSets.length + 's ' + volume + 'kg</div>';
+          html += '<div style="padding: 4px 0; font-size: 12px;"><span style="font-weight: 600;">' + escapeHtml(ex.nome) + '</span> ' + doneSets.length + 's ' + volume + 'kg</div>';
         });
         html += '</div>';
       });
@@ -1605,6 +1661,7 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = html;
       document.body.appendChild(overlay);
+      requestAnimationFrame(function() { overlay.classList.add('active'); });
     }
 
     function setStoricoView(mode) {
@@ -1661,7 +1718,7 @@
           var week = weeks[weekKey];
           html += '<div class="card card-clickable" onclick="showWeekDetails(\'' + weekKey + '\')"><div class="flex justify-between items-center mb-8"><span style="font-weight: 700;">' + week.label + '</span><span style="font-size: 13px; color: var(--ok-color);">' + week.completed + '/' + week.total + ' allenamenti</span></div><div class="flex gap-8">';
           week.days.forEach(function(d) {
-            html += '<div style="text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase;">' + d.name + '</div><div style="width: 32px; height: 32px; border-radius: 50%; background: ' + (d.done ? '#1a1a1a' : '#f0f0f0') + '; display: flex; align-items: center; justify-content: center; margin: 4px auto 0; color: ' + (d.done ? '#fff' : '#767676') + ';">' + (d.done ? '<span class="material-symbols-outlined" style="font-size: 16px; color: #fff;">check</span>' : '<span class="material-symbols-outlined" style="font-size: 14px;">radio_button_unchecked</span>') + '</div></div>';
+            html += '<div style="text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase;">' + d.name + '</div><div style="width: 32px; height: 32px; border-radius: 50%; background: ' + (d.done ? 'var(--color-text-primary)' : 'var(--color-border)') + '; display: flex; align-items: center; justify-content: center; margin: 4px auto 0; color: ' + (d.done ? 'var(--color-bg)' : 'var(--color-text-muted)') + ';">' + (d.done ? '<span class="material-symbols-outlined" style="font-size: 16px; color: var(--color-bg);">check</span>' : '<span class="material-symbols-outlined" style="font-size: 14px;">radio_button_unchecked</span>') + '</div></div>';
           });
           html += '</div></div>';
         });
@@ -1713,6 +1770,7 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = html;
       document.body.appendChild(overlay);
+      requestAnimationFrame(function() { overlay.classList.add('active'); });
     }
 
     function viewWorkoutDetail(id) {
@@ -1720,14 +1778,14 @@
       if (!workout) return;
       var totalVolume = 0;
       var totalSets = 0;
-      var html = '<div class="modal-box" style="max-height: 80vh; overflow-y: auto;"><h2>' + workout.giorno + '</h2><p class="muted mb-16">' + workout.data + ' · ' + Math.floor(workout.durata_secondi / 60) + ' minuti</p><div class="divider"></div>';
+      var html = '<div class="modal-box" style="max-height: 80vh; overflow-y: auto;"><h2>' + escapeHtml(workout.giorno) + '</h2><p class="muted mb-16">' + escapeHtml(workout.data) + ' · ' + Math.floor(workout.durata_secondi / 60) + ' minuti</p><div class="divider"></div>';
       workout.exercises.forEach(function(ex) {
         var doneSets = ex.sets.filter(function(s) { return s.completato; });
         if (doneSets.length === 0) return;
         var volume = doneSets.reduce(function(sum, s) { return sum + (s.ripetizioni * s.peso_kg); }, 0);
         totalVolume += volume;
         totalSets += doneSets.length;
-        html += '<div class="flex items-center justify-between" style="padding: 8px 0; border-bottom: 1px solid var(--border-light);"><div><div class="exercise-name" style="font-size: 14px;">' + ex.nome + '</div><div class="muted">' + doneSets.length + ' serie · ' + doneSets.map(function(s) { return s.ripetizioni + '×' + s.peso_kg + 'kg'; }).join(', ') + '</div></div><div class="accent-text" style="font-weight: 700;">' + volume + ' kg</div></div>';
+        html += '<div class="flex items-center justify-between" style="padding: 8px 0; border-bottom: 1px solid var(--border-light);"><div><div class="exercise-name" style="font-size: 14px;">' + escapeHtml(ex.nome) + '</div><div class="muted">' + doneSets.length + ' serie · ' + doneSets.map(function(s) { return escapeHtml(s.ripetizioni) + '×' + escapeHtml(s.peso_kg) + 'kg'; }).join(', ') + '</div></div><div class="accent-text" style="font-weight: 700;">' + volume + ' kg</div></div>';
       });
       html += '<div class="divider"></div><div class="flex justify-between" style="font-size: 18px;"><div><span style="font-weight: 700;">' + totalVolume + ' kg</span> <span class="muted">volume</span></div><div><span style="font-weight: 700;">' + totalSets + '</span> <span class="muted">serie</span></div><div><span style="font-weight: 700;">' + Math.floor(workout.durata_secondi / 60) + '\'</span> <span class="muted">durata</span></div></div>';
       html += '<div class="divider"></div><div class="modal-actions"><button class="btn btn-ghost" style="color: var(--accent-dark);" onclick="deleteWorkout(\'' + id + '\'); this.closest(\'.modal-overlay\').remove()">Elimina allenamento</button><button class="btn btn-block" onclick="this.closest(\'.modal-overlay\').remove()">Chiudi</button></div></div>';
@@ -1735,6 +1793,7 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = html;
       document.body.appendChild(overlay);
+      requestAnimationFrame(function() { overlay.classList.add('active'); });
     }
 
     function deleteWorkout(id) {
@@ -1784,29 +1843,8 @@
 
     function renderImpostazioni() {
       var view = document.getElementById('view-impostazioni');
-      var editingDay = state.editingDay || 0;
-      var html = '<div><h1>Impostazioni</h1><h3>Modifica scheda</h3><div class="flex gap-8 mb-12" style="flex-wrap: wrap;">';
-
-      state.templates.forEach(function(t, i) {
-        html += '<button class="btn btn-sm' + (i === editingDay ? ' btn-primary' : '') + '" onclick="selectEditingDay(' + i + ')">' + t.giorno + '</button>';
-      });
-
-      var currentTemplate = state.templates[editingDay];
-      html += '</div>';
-
-      currentTemplate.esercizi.forEach(function(ex, i) {
-        var isFirst = i === 0;
-        var isLast = i === currentTemplate.esercizi.length - 1;
-        html += '<div class="exercise-item"><div class="flex justify-between items-center"><div class="exercise-name">' + ex.nome + '</div><div class="flex gap-4"><button class="btn btn-ghost btn-sm" onclick="moveExercise(' + editingDay + ', ' + i + ', -1)"' + (isFirst ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_up</span></button><button class="btn btn-ghost btn-sm" onclick="moveExercise(' + editingDay + ', ' + i + ', 1)"' + (isLast ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_down</span></button><button class="btn btn-ghost btn-sm" onclick="removeExercise(' + editingDay + ', ' + i + ')"><span class="material-symbols-outlined" style="font-size: 16px;">close</span></button></div></div><div class="flex gap-8 mt-8" style="font-size: 13px;"><label>Serie <input type="number" name="serie-' + editingDay + '-' + i + '" value="' + ex.serie + '" min="1" max="10" style="width: 40px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'serie\', this.value)"></label><label>Reps <input type="text" name="reps-' + editingDay + '-' + i + '" value="' + ex.reps + '" style="width: 50px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'reps\', this.value)"></label><label>Recupero <input type="number" name="recupero-' + editingDay + '-' + i + '" value="' + Math.floor(ex.recupero / 60) + '" min="1" max="5" style="width: 40px;" onchange="updateExerciseParam(' + editingDay + ', ' + i + ', \'recupero\', this.value * 60)"> min</label></div></div>';
-      });
-
-      html += '<button class="btn btn-block mt-16" onclick="showAddExercise()">+ Aggiungi esercizio</button><div class="divider mt-24"></div><h3>Fase</h3><div class="toggle-group mb-12">';
-      html += '<button class="toggle-btn' + (state.fase === 1 ? ' active' : '') + '" onclick="setFase(1)">Fase 1</button>';
-      html += '<button class="toggle-btn' + (state.fase === 2 ? ' active' : '') + '" onclick="setFase(2)">Fase 2</button>';
-      html += '<button class="toggle-btn' + (state.fase === 3 ? ' active' : '') + '" onclick="setFase(3)">Fase 3</button>';
-      html += '<button class="toggle-btn' + (state.fase === 'deload' ? ' active' : '') + '" onclick="setFase(\'deload\')">Deload</button>';
-      html += '</div><p class="muted" style="font-size: 11px;">Fase 2: alzate laterali +1 serie | Fase 3: anche shrug +1 serie | Deload: -50% serie</p>';
-      html += '<div class="divider mt-24"></div><h3>Dark mode</h3><div class="toggle-group mb-12">';
+      var html = '<div><h1>Impostazioni</h1>';
+      html += '<h3>Dark mode</h3><div class="toggle-group mb-12">';
       html += '<button class="toggle-btn' + (state.darkMode === null ? ' active' : '') + '" onclick="setDarkMode(null)">Auto</button>';
       html += '<button class="toggle-btn' + (state.darkMode === true ? ' active' : '') + '" onclick="setDarkMode(true)">Scuro</button>';
       html += '<button class="toggle-btn' + (state.darkMode === false ? ' active' : '') + '" onclick="setDarkMode(false)">Chiaro</button>';
@@ -1818,7 +1856,7 @@
     function setFase(fase) {
       state.fase = fase;
       saveCache();
-      renderImpostazioni();
+      renderProgramma();
     }
 
     function setDarkMode(mode) {
@@ -1828,9 +1866,9 @@
       renderImpostazioni();
     }
 
-    function selectEditingDay(index) {
+    function setEditingDay(index) {
       state.editingDay = index;
-      renderImpostazioni();
+      renderProgramma();
     }
 
     function updateExerciseParam(dayIndex, exIndex, param, value) {
@@ -1843,7 +1881,7 @@
     function removeExercise(dayIndex, exIndex) {
       state.templates[dayIndex].esercizi.splice(exIndex, 1);
       saveCache();
-      renderImpostazioni();
+      renderProgramma();
     }
 
     function moveExercise(dayIndex, exIndex, dir) {
@@ -1854,7 +1892,7 @@
       arr[exIndex] = arr[target];
       arr[target] = tmp;
       saveCache();
-      renderImpostazioni();
+      renderProgramma();
     }
 
     function showAddExercise() {
@@ -1863,7 +1901,8 @@
       overlay.id = 'add-ex-modal';
       overlay.innerHTML = '<div class="modal-box"><h2>Nuovo esercizio</h2><label for="add-ex-name">Nome</label><input type="text" id="add-ex-name" placeholder="es. Panca piana" autofocus><label for="add-ex-sets">Serie</label><input type="number" id="add-ex-sets" value="3" min="1" max="10"><label for="add-ex-reps">Reps target</label><input type="text" id="add-ex-reps" value="8-12" placeholder="8-12"><label for="add-ex-rest">Recupero (min)</label><input type="number" id="add-ex-rest" value="1.5" min="0.5" max="5" step="0.5"><div class="modal-actions"><button class="btn btn-ghost" onclick="document.getElementById(\'add-ex-modal\').remove()">Annulla</button><button class="btn btn-primary" onclick="confirmAddExercise()">Aggiungi</button></div></div>';
       document.body.appendChild(overlay);
-      setTimeout(function() { document.getElementById('add-ex-name').focus(); }, 100);
+      requestAnimationFrame(function() { overlay.classList.add('active'); });
+      setTimeout(function() { document.getElementById('add-ex-name').focus(); }, 150);
     }
 
     function confirmAddExercise() {
@@ -1872,11 +1911,11 @@
       var sets = parseInt(document.getElementById('add-ex-sets').value) || 3;
       var reps = document.getElementById('add-ex-reps').value.trim() || '8-12';
       var rest = Math.round((parseFloat(document.getElementById('add-ex-rest').value) || 1.5) * 60);
-      var editingDay = state.editingDay || 0;
-      state.templates[editingDay].esercizi.push({ nome: name, serie: sets, reps: reps, recupero: rest, rpeTarget: '7.5-9' });
+      var dayIndex = state.editingDay || 0;
+      state.templates[dayIndex].esercizi.push({ nome: name, serie: sets, reps: reps, recupero: rest, rpeTarget: '7.5-9' });
       saveCache();
       document.getElementById('add-ex-modal').remove();
-      renderImpostazioni();
+      renderProgramma();
     }
 
     function exportData() {
@@ -1900,14 +1939,32 @@
       reader.onload = function(e) {
         try {
           var data = JSON.parse(e.target.result);
-          if (data.templates) state.templates = data.templates;
-          if (data.workoutHistory) state.workoutHistory = data.workoutHistory;
-          if (data.lastWeights) state.lastWeights = data.lastWeights;
+          if (!data || typeof data !== 'object') throw new Error('Invalid data');
+          if (data.templates) {
+            if (!Array.isArray(data.templates)) throw new Error('templates must be array');
+            data.templates.forEach(function(t) {
+              if (!t.giorno || typeof t.giorno !== 'string') throw new Error('Invalid template');
+              if (!Array.isArray(t.esercizi)) throw new Error('Invalid exercises');
+            });
+            state.templates = data.templates;
+          }
+          if (data.workoutHistory) {
+            if (!Array.isArray(data.workoutHistory)) throw new Error('workoutHistory must be array');
+            data.workoutHistory.forEach(function(w) {
+              if (!w.id || !w.data || !w.giorno) throw new Error('Invalid workout entry');
+              if (!Array.isArray(w.exercises)) throw new Error('Invalid workout exercises');
+            });
+            state.workoutHistory = data.workoutHistory;
+          }
+          if (data.lastWeights) {
+            if (typeof data.lastWeights !== 'object') throw new Error('lastWeights must be object');
+            state.lastWeights = data.lastWeights;
+          }
           saveCache();
           renderImpostazioni();
     switchView('oggi');
         } catch(err) {
-          alert('Errore importazione file.');
+          alert('Errore importazione file: ' + err.message);
         }
       };
       reader.readAsText(file);
@@ -1924,42 +1981,6 @@
       }
     }
 
-    async function syncWorkout(workout) {
-      if (!supabaseClient) return;
-      try {
-        var result = await supabaseClient.from('workouts').insert({
-          id: workout.id, giorno: workout.giorno, data: workout.data, durata_secondi: workout.durata_secondi, completato: workout.completato,
-        }).select().single();
-        if (result.error) throw result.error;
-        for (var ei = 0; ei < workout.exercises.length; ei++) {
-          var ex = workout.exercises[ei];
-          var exResult = await supabaseClient.from('exercises').insert({
-            workout_id: workout.id, nome_esercizio: ex.nome, ordine: ei,
-          }).select().single();
-          if (exResult.error) throw exResult.error;
-          for (var si = 0; si < ex.sets.length; si++) {
-            var s = ex.sets[si];
-            var setResult = await supabaseClient.from('sets').insert({
-              exercise_id: exResult.data.id, serie_numero: s.serie_numero, ripetizioni: s.ripetizioni, peso_kg: s.peso_kg, rir: s.rir, completato: s.completato,
-            });
-            if (setResult.error) throw setResult.error;
-          }
-        }
-      } catch (e) {
-        console.warn('Supabase sync failed, data saved locally:', e);
-      }
-    }
 
-    async function loadWorkoutsFromSupabase() {
-      if (!supabaseClient) return [];
-      try {
-        var result = await supabaseClient.from('workouts').select('*').order('data', { ascending: false });
-        if (result.error) throw result.error;
-        return result.data;
-      } catch (e) {
-        console.warn('Supabase load failed:', e);
-        return [];
-      }
-    }
 
     switchView('oggi');
