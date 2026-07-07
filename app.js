@@ -18,6 +18,8 @@
       workoutTimerInterval: null,
       workoutStartTime: null,
       restExerciseIndex: -1,
+      restTimerStartTime: 0,
+      restTimerTotal: 0,
       analisiLevel: 'intermediate',
       analisiMode: 'reale',
       analisiFilter: 'week',
@@ -25,6 +27,7 @@
       darkMode: null, // null=system, true=dark, false=light
       progressoEsercizio: null,
       _notesOpen: null,
+      silentAudio: null,
       dataVersion: 0,
       calendarYear: new Date().getFullYear(),
       calendarMonth: new Date().getMonth(),
@@ -169,6 +172,9 @@
               state.currentExercise = data.currentExercise || 0;
               state.currentSet = data.currentSet || 0;
               state.workoutStartTime = data.workoutStartTime || Date.now();
+              state.restExerciseIndex = data.restExerciseIndex !== undefined ? data.restExerciseIndex : -1;
+              state.restTimerStartTime = data.restTimerStartTime || 0;
+              state.restTimerTotal = data.restTimerTotal || 0;
             }
           }
         }
@@ -188,6 +194,9 @@
         data.currentExercise = state.currentExercise;
         data.currentSet = state.currentSet;
         data.workoutStartTime = state.workoutStartTime;
+        data.restExerciseIndex = state.restExerciseIndex;
+        data.restTimerStartTime = state.restTimerStartTime;
+        data.restTimerTotal = state.restTimerTotal;
       }
       localStorage.setItem('workout_cache', JSON.stringify(data));
       localStorage.setItem('workout_history', JSON.stringify(state.workoutHistory));
@@ -298,7 +307,7 @@
           { nome: "Lat Machine presa neutra", serie: 3, reps: "8-10", recupero: 150, rpeTarget: "7.5-9" },
           { nome: "Chest Press macchina (convergente)", serie: 3, reps: "8-10", recupero: 150, rpeTarget: "7.5-9" },
           { nome: "Rematore chest-supported", serie: 3, reps: "8-10", recupero: 150, rpeTarget: "7.5-9" },
-          { nome: "Alzate laterali ai cavi", serie: 5, reps: "12-15", recupero: 90, rpeTarget: "8.5-10" },
+          { nome: "Alzate laterali ai cavi", serie: 5, reps: "12-15", recupero: 90, rpeTarget: "8.5-10", alternative: ["Alzate laterali unilaterali ai cavi", "Alzate laterali Lean Away ai cavi", "Alzate laterali manubri, seduto"] },
           { nome: "Shrug manubri", serie: 4, reps: "10-12", recupero: 90, rpeTarget: "8.5-10" },
           { nome: "Reverse Cable Fly", serie: 3, reps: "12-15", recupero: 90, rpeTarget: "8.5-10" },
           { nome: "Pushdown cavo", serie: 4, reps: "10-12", recupero: 90, rpeTarget: "8.5-10" },
@@ -471,6 +480,104 @@
       container.innerHTML = html;
     }
 
+    function createSilentAudioURL() {
+      var sampleRate = 44100;
+      var channels = 1;
+      var bitsPerSample = 16;
+      var numSamples = sampleRate;
+      var buffer = new ArrayBuffer(44 + numSamples * 2);
+      var v = new DataView(buffer);
+      var w = function(offset, str) { for (var i = 0; i < str.length; i++) v.setUint8(offset + i, str.charCodeAt(i)); };
+      w(0, 'RIFF'); v.setUint32(4, 36 + numSamples * 2, true);
+      w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+      v.setUint16(20, 1, true); v.setUint16(22, channels, true);
+      v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * channels * bitsPerSample / 8, true);
+      v.setUint16(32, channels * bitsPerSample / 8, true); v.setUint16(34, bitsPerSample, true);
+      w(36, 'data'); v.setUint32(40, numSamples * 2, true);
+      return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+    }
+
+    function setupMediaSession() {
+      if (!('mediaSession' in navigator)) return;
+      if (!state.silentAudio) {
+        state.silentAudio = new Audio(createSilentAudioURL());
+        state.silentAudio.loop = true;
+        state.silentAudio.volume = 0;
+      }
+      state.silentAudio.play().catch(function() {});
+      setupMediaSessionActions();
+    }
+
+    function teardownMediaSession() {
+      if (state.silentAudio) {
+        state.silentAudio.pause();
+        state.silentAudio.currentTime = 0;
+      }
+      if ('mediaSession' in navigator) {
+        try { navigator.mediaSession.setPositionState(null); } catch(e) {}
+        navigator.mediaSession.metadata = null;
+      }
+      document.title = 'Workout Tracker';
+    }
+
+    function updateMediaSession() {
+      if (!('mediaSession' in navigator) || !state.activeWorkout) return;
+      var ex = state.activeWorkout.exercises[state.currentExercise];
+      if (!ex) return;
+      var restInfo = '';
+      if (state.restExerciseIndex >= 0) {
+        var remaining = Math.max(0, state.restTimerTotal - state.timerSeconds);
+        restInfo = ' · Recupero ' + formatTime(remaining);
+      }
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: ex.nome,
+        artist: 'Serie ' + (state.currentSet + 1) + '/' + ex.sets.length + restInfo,
+        album: 'Workout Tracker',
+      });
+      if (state.restExerciseIndex >= 0 && state.timerSeconds < state.restTimerTotal) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: state.restTimerTotal, playbackRate: 1, position: state.timerSeconds,
+          });
+        } catch(e) {}
+      } else {
+        try { navigator.mediaSession.setPositionState(null); } catch(e) {}
+      }
+    }
+
+    function setupMediaSessionActions() {
+      if (!('mediaSession' in navigator)) return;
+      navigator.mediaSession.setActionHandler('play', function() {
+        if (!state.activeWorkout) return;
+        if (state.restExerciseIndex < 0) {
+          completeSet();
+        } else {
+          skipRest();
+          renderAllenamento();
+          updateMediaSession();
+        }
+      });
+      navigator.mediaSession.setActionHandler('pause', function() {
+        if (state.restExerciseIndex >= 0) {
+          skipRest();
+          renderAllenamento();
+          updateMediaSession();
+        }
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', function() {
+        if (!state.activeWorkout) return;
+        skipExercise(state.currentExercise);
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', function() {
+        if (!state.activeWorkout) return;
+        navigateToExercise(Math.max(0, state.currentExercise - 1));
+      });
+      navigator.mediaSession.setActionHandler('stop', function() {
+        if (!state.activeWorkout) return;
+        finishWorkout();
+      });
+    }
+
     function startWorkout(giorno) {
       var oggi = new Date();
       var oggiDataStr = oggi.toISOString().split('T')[0];
@@ -515,6 +622,7 @@
       }
 
       saveCache();
+      setupMediaSession();
       document.getElementById('tab-bar').classList.add('hidden');
       document.getElementById('workout-pill').classList.add('hidden');
       switchView('allenamento');
@@ -671,7 +779,7 @@
         if (!isCurrentEx) exClasses += ' clickable';
 
         html += '<div class="' + exClasses + '"' + (!isCurrentEx ? ' onclick="navigateToExercise(' + exIdx + ')"' : '') + '>';
-        html += '<div class="flex items-center justify-between mb-8"><div><div class="exercise-name">' + (isSkipped ? '<span class="muted">Saltato: </span>' : '') + escapeHtml(ex.nome) + (progressionPill ? ' <span class="progression-pill">📈 ' + progressionPill + '</span>' : '') + '</div><div class="exercise-meta">' + escapeHtml(ex.serieTarget) + ' serie · target ' + escapeHtml(targetReps) + ' reps · RPE ' + (templateEx ? escapeHtml(templateEx.rpeTarget) : '') + (allSetsDone ? ' <span class="material-symbols-outlined accent-text" style="font-size: 14px;">check_circle</span>' : '') + '</div></div><div style="display: flex; gap: 4px;">' + (EXERCISE_NOTES[ex.nome] ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleNotes(' + exIdx + ')"><span class="material-symbols-outlined" style="font-size: 16px;">info</span></button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();skipExercise(' + exIdx + ')">Salta</button>' : '') + '</div></div>';
+        html += '<div class="flex items-center justify-between mb-8"><div><div class="exercise-name">' + (isSkipped ? '<span class="muted">Saltato: </span>' : '') + escapeHtml(ex.nome) + (progressionPill ? ' <span class="progression-pill">📈 ' + progressionPill + '</span>' : '') + '</div><div class="exercise-meta">' + escapeHtml(ex.serieTarget) + ' serie · target ' + escapeHtml(targetReps) + ' reps · RPE ' + (templateEx ? escapeHtml(templateEx.rpeTarget) : '') + (allSetsDone ? ' <span class="material-symbols-outlined accent-text" style="font-size: 14px;">check_circle</span>' : '') + '</div></div><div style="display: flex; gap: 4px;">' + (EXERCISE_NOTES[ex.nome] ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleNotes(' + exIdx + ')"><span class="material-symbols-outlined" style="font-size: 16px;">info</span></button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showSwapModal(' + exIdx + ')">Sost.</button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();skipExercise(' + exIdx + ')">Salta</button>' : '') + '</div></div>';
 
         // Notes panel (expandable)
         if (EXERCISE_NOTES[ex.nome]) {
@@ -713,6 +821,7 @@
 
       html += '</div>'; // .workout-scroll
       view.innerHTML = html;
+      updateMediaSession();
     }
 
     function toggleNotes(exIdx) {
@@ -773,6 +882,9 @@
         state.restExerciseIndex = exIdx;
         state.currentExercise++;
         state.currentSet = 0;
+        state.restTimerStartTime = Date.now();
+        state.restTimerTotal = currentEx.recupero;
+        saveCache();
         renderAllenamento();
         startRestTimer(currentEx.recupero);
         if (state.currentExercise >= state.activeWorkout.exercises.length) {
@@ -783,6 +895,9 @@
 
       state.restExerciseIndex = exIdx;
       state.currentSet++;
+      state.restTimerStartTime = Date.now();
+      state.restTimerTotal = currentEx.recupero;
+      saveCache();
       renderAllenamento();
       startRestTimer(currentEx.recupero);
     }
@@ -817,6 +932,62 @@
       saveCache();
     }
 
+    function getAlternativesForExercise(exName) {
+      var templateGiorno = state.templates.find(function(t) { return t.giorno === state.activeWorkout.giorno; });
+      var templateEx = templateGiorno ? templateGiorno.esercizi[state.currentExercise] : null;
+      var alternatives = [];
+      if (templateEx && templateEx.alternative) {
+        templateEx.alternative.forEach(function(a) {
+          if (alternatives.indexOf(a) < 0) alternatives.push(a);
+        });
+      }
+      var mg = MUSCLE_MAP[exName];
+      if (mg) {
+        Object.keys(MUSCLE_MAP).forEach(function(key) {
+          if (MUSCLE_MAP[key] === mg && key !== exName && alternatives.indexOf(key) < 0) {
+            alternatives.push(key);
+          }
+        });
+      }
+      return alternatives;
+    }
+
+    function swapExercise(exIdx, newName) {
+      if (!state.activeWorkout) return;
+      var ex = state.activeWorkout.exercises[exIdx];
+      var oldName = ex.nome;
+      ex.nome = newName;
+      state.lastWeights[newName] = state.lastWeights[newName] || state.lastWeights[oldName] || null;
+      clearInterval(state.timerInterval);
+      state.restExerciseIndex = -1;
+      state.restTimerStartTime = 0;
+      state.restTimerTotal = 0;
+      saveCache();
+      renderAllenamento();
+      document.querySelectorAll('.modal-overlay').forEach(function(m) { m.remove(); });
+    }
+
+    function showSwapModal(exIdx) {
+      if (!state.activeWorkout) return;
+      var ex = state.activeWorkout.exercises[exIdx];
+      if (!ex) return;
+      var alternatives = getAlternativesForExercise(ex.nome);
+      if (alternatives.length === 0) {
+        showToast('Nessun esercizio sostitutivo disponibile per ' + ex.nome + '.');
+        return;
+      }
+      var html = '<div class="modal-box"><h2>Sostituisci esercizio</h2><p class="text-muted" style="margin-bottom:16px;">' + escapeHtml(ex.nome) + '</p>';
+      alternatives.forEach(function(a) {
+        var mg = MUSCLE_MAP[a] || '';
+        html += '<div class="exercise-item" style="cursor:pointer;" onclick="swapExercise(' + exIdx + ',\'' + a.replace(/'/g,"\\'") + '\')"><div class="exercise-name" style="font-size:14px;">' + escapeHtml(a) + '</div>' + (mg ? '<div class="exercise-meta">' + escapeHtml(mg) + '</div>' : '') + '</div>';
+      });
+      html += '<div class="modal-actions" style="margin-top:16px;"><button class="btn btn-block" onclick="this.closest(\'.modal-overlay\').remove()">Annulla</button></div></div>';
+      var overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+    }
+
     function uncompleteSet(exIdx, setIdx) {
       var ex = state.activeWorkout.exercises[exIdx];
       if (!ex) return;
@@ -834,12 +1005,17 @@
     function skipRest() {
       clearInterval(state.timerInterval);
       state.restExerciseIndex = -1;
+      state.restTimerStartTime = 0;
+      state.restTimerTotal = 0;
+      saveCache();
       renderAllenamento();
     }
 
-    function startRestTimer(seconds) {
+    function startRestTimer(seconds, elapsed) {
       clearInterval(state.timerInterval);
-      state.timerSeconds = 0;
+      state.timerSeconds = elapsed || 0;
+      state.restTimerStartTime = Date.now() - ((elapsed || 0) * 1000);
+      state.restTimerTotal = seconds;
       var totalSeconds = seconds;
       var restDisplay = document.querySelector('.timer-display');
       var restBarFill = document.querySelector('.timer-bar-fill');
@@ -850,6 +1026,10 @@
         var remaining = Math.max(0, totalSeconds - state.timerSeconds);
         if (restDisplay) restDisplay.textContent = formatTime(remaining);
         if (restBarFill) restBarFill.style.width = ((state.timerSeconds / totalSeconds) * 100) + '%';
+        updateMediaSession();
+        if (!('mediaSession' in navigator)) {
+          document.title = 'Rec: ' + formatTime(remaining) + ' - Workout Tracker';
+        }
         if (state.timerSeconds >= totalSeconds) {
           clearInterval(state.timerInterval);
           var timerCard = document.querySelector('.timer-card');
@@ -870,6 +1050,10 @@
           } else if (Notification.permission === 'default') {
             Notification.requestPermission();
           }
+          state.restExerciseIndex = -1;
+          state.restTimerStartTime = 0;
+          state.restTimerTotal = 0;
+          saveCache();
         }
       }, 1000);
     }
@@ -881,16 +1065,17 @@
     }
 
     function exitWorkout() {
+      teardownMediaSession();
       clearInterval(state.timerInterval);
       clearInterval(state.workoutTimerInterval);
       state.workoutTimerInterval = null;
-      state.restExerciseIndex = -1;
       if (state.activeWorkout) {
         var ex = state.activeWorkout.exercises[state.currentExercise];
         if (ex) document.getElementById('pill-exercise-name').textContent = ex.nome;
         document.getElementById('workout-pill').classList.remove('hidden');
       }
       document.getElementById('tab-bar').classList.remove('hidden');
+      saveCache();
       switchView('oggi');
     }
 
@@ -900,9 +1085,23 @@
       switchView('allenamento');
       renderAllenamento();
       startWorkoutTimer();
+      if (state.restExerciseIndex >= 0) {
+        var elapsed = (Date.now() - state.restTimerStartTime) / 1000;
+        var remaining = state.restTimerTotal - elapsed;
+        if (remaining > 0) {
+          startRestTimer(state.restTimerTotal, Math.min(elapsed, state.restTimerTotal - 1));
+          renderAllenamento();
+        } else {
+          state.restExerciseIndex = -1;
+          state.restTimerStartTime = 0;
+          state.restTimerTotal = 0;
+          saveCache();
+        }
+      }
     }
 
     function finishWorkout() {
+      teardownMediaSession();
       clearInterval(state.timerInterval);
       clearInterval(state.workoutTimerInterval);
       state.workoutTimerInterval = null;
@@ -1494,6 +1693,7 @@
                 '<label>Reps <input type="text" name="reps-' + dayIndex + '-' + i + '" value="' + escapeHtml(ex.reps) + '" style="width: 50px;" onchange="updateExerciseParam(' + dayIndex + ', ' + i + ', \'reps\', this.value)"></label>' +
                 '<label>Recupero <input type="number" name="recupero-' + dayIndex + '-' + i + '" value="' + Math.floor(ex.recupero / 60) + '" min="1" max="5" style="width: 40px;" onchange="updateExerciseParam(' + dayIndex + ', ' + i + ', \'recupero\', this.value * 60)"> min</label>' +
               '</div>' +
+              '<div class="mt-8" style="font-size: 12px;"><label>Alternative (separate da virgola): <input type="text" value="' + escapeHtml((ex.alternative || []).join(', ')) + '" placeholder="es. Alzate laterali manubri" style="width:100%;font-size:13px;text-align:left;" onchange="updateExerciseAlternatives(' + dayIndex + ', ' + i + ', this.value)"></label></div>' +
             '</div>';
           });
           html += '</div>';
@@ -1872,9 +2072,14 @@
     }
 
     function updateExerciseParam(dayIndex, exIndex, param, value) {
-      if (param === 'serie') state.templates[dayIndex].esercizi[exIndex].serie = parseInt(value);
-      if (param === 'reps') state.templates[dayIndex].esercizi[exIndex].reps = value;
-      if (param === 'recupero') state.templates[dayIndex].esercizi[exIndex].recupero = parseInt(value);
+      state.templates[dayIndex].esercizi[exIndex][param] = value;
+      saveCache();
+      renderProgramma();
+    }
+
+    function updateExerciseAlternatives(dayIndex, exIndex, value) {
+      var alternatives = value.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      state.templates[dayIndex].esercizi[exIndex].alternative = alternatives;
       saveCache();
     }
 
