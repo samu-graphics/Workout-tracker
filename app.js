@@ -3,6 +3,23 @@
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
     }
 
+    function haptic(ms) {
+      if (navigator.vibrate) navigator.vibrate(ms || 20);
+    }
+
+    function beep(freq, duration) {
+      try {
+        var ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === 'suspended') ctx.resume();
+        var osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq || 800;
+        osc.connect(ctx.destination);
+        osc.start();
+        setTimeout(function() { osc.stop(); }, duration || 200);
+      } catch(e) {}
+    }
+
     const state = {
       currentView: 'oggi',
       activeWorkout: null,
@@ -200,6 +217,7 @@
       }
       localStorage.setItem('workout_cache', JSON.stringify(data));
       localStorage.setItem('workout_history', JSON.stringify(state.workoutHistory));
+      showSaveToast();
     }
 
     function renderEmptyState(icon, title, message, ctaText, ctaAction) {
@@ -246,6 +264,18 @@
         toast.classList.remove('visible');
         setTimeout(function() { toast.remove(); }, 300);
       }, 5000);
+    }
+
+    var saveToastTimer = null;
+    function showSaveToast() {
+      var existing = document.querySelector('.save-toast');
+      if (existing) existing.remove();
+      if (saveToastTimer) clearTimeout(saveToastTimer);
+      var el = document.createElement('div');
+      el.className = 'save-toast';
+      el.textContent = 'Salvato ✓';
+      document.body.appendChild(el);
+      saveToastTimer = setTimeout(function() { el.remove(); }, 1800);
     }
 
     function renderTabBar() {
@@ -409,6 +439,7 @@
     }
 
     function riprendiAllenamento() {
+      haptic();
       resumeWorkout();
     }
 
@@ -793,7 +824,7 @@
           var isCurrentSet = isCurrentEx && setIdx === state.currentSet && !set.completato;
           var opacity = set.completato ? '' : (isCurrentSet ? '' : 'op-50');
 
-          html += '<div class="set-grid ' + opacity + '"><div class="set-cell" style="font-weight: 700;">' + set.serie_numero + '</div>';
+          html += '<div class="set-grid ' + opacity + (isCurrentSet ? ' current' : '') + '"><div class="set-cell" style="font-weight: 700;">' + set.serie_numero + '</div>';
 
           var repsVal = set.ripetizioni || (isCurrentSet && last ? last.reps : '');
           var pesoVal = set.peso_kg || (isCurrentSet && last ? last.peso : '');
@@ -822,6 +853,57 @@
       html += '</div>'; // .workout-scroll
       view.innerHTML = html;
       updateMediaSession();
+      setTimeout(setupSwipe, 0);
+    }
+
+    function setupSwipe() {
+      var row = document.querySelector('.set-grid.current');
+      if (!row) return;
+      var startX = 0, deltaX = 0, isSwiping = false;
+
+      function onTouchStart(e) {
+        startX = e.touches[0].clientX;
+        deltaX = 0;
+        isSwiping = false;
+      }
+
+      function onTouchMove(e) {
+        deltaX = e.touches[0].clientX - startX;
+        if (Math.abs(deltaX) > 10) isSwiping = true;
+        if (isSwiping) {
+          row.classList.add('swiping');
+          var clamped = Math.max(-80, Math.min(80, deltaX));
+          row.style.transform = 'translateX(' + clamped + 'px)';
+          if (clamped > 40) row.classList.add('swipe-right');
+          else row.classList.remove('swipe-right');
+          if (clamped < -40) row.classList.add('swipe-left');
+          else row.classList.remove('swipe-left');
+        }
+      }
+
+      function onTouchEnd() {
+        row.classList.remove('swiping');
+        row.style.transform = '';
+        if (deltaX > 60) {
+          completeSet();
+        } else if (deltaX < -60) {
+          var exIdx = state.currentExercise;
+          var currentEx = state.activeWorkout.exercises[exIdx];
+          var set = currentEx.sets[state.currentSet];
+          if (set && set.completato) {
+            set.completato = false;
+            saveCache();
+            renderAllenamento();
+          }
+        }
+        row.classList.remove('swipe-right', 'swipe-left');
+        deltaX = 0;
+        isSwiping = false;
+      }
+
+      row.addEventListener('touchstart', onTouchStart, { passive: true });
+      row.addEventListener('touchmove', onTouchMove, { passive: true });
+      row.addEventListener('touchend', onTouchEnd);
     }
 
     function toggleNotes(exIdx) {
@@ -863,6 +945,8 @@
       set.peso_kg = peso;
       set.rir = rir;
       set.completato = true;
+      beep(880, 120);
+      haptic(50);
       showUndoToast('Serie completata', function() {
         set.completato = false;
         saveCache();
@@ -983,6 +1067,7 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = html;
       document.body.appendChild(overlay);
+      requestAnimationFrame(function() { overlay.classList.add('active'); });
     }
 
     function uncompleteSet(exIdx, setIdx) {
@@ -1000,6 +1085,7 @@
     }
 
     function skipRest() {
+      haptic();
       clearInterval(state.timerInterval);
       state.restExerciseIndex = -1;
       state.restTimerStartTime = 0;
@@ -1062,6 +1148,7 @@
     }
 
     function exitWorkout() {
+      haptic();
       teardownMediaSession();
       clearInterval(state.timerInterval);
       clearInterval(state.workoutTimerInterval);
@@ -1098,6 +1185,7 @@
     }
 
     function finishWorkout() {
+      haptic();
       teardownMediaSession();
       clearInterval(state.timerInterval);
       clearInterval(state.workoutTimerInterval);
@@ -1674,14 +1762,13 @@
         if (template) {
           html += '<div class="programma-detail">';
           template.esercizi.forEach(function(ex, i) {
-            var isFirst = i === 0;
-            var isLast = i === template.esercizi.length - 1;
             html += '<div class="exercise-item">' +
               '<div class="flex justify-between items-center">' +
-                '<div class="exercise-name">' + escapeHtml(ex.nome) + '</div>' +
+                '<div style="display:flex;align-items:center;gap:8px;">' +
+                  '<span class="drag-handle"><span class="material-symbols-outlined" style="font-size:18px;">drag_indicator</span></span>' +
+                  '<div class="exercise-name">' + escapeHtml(ex.nome) + '</div>' +
+                '</div>' +
                 '<div class="flex gap-4">' +
-                  '<button class="btn btn-ghost btn-sm" onclick="moveExercise(' + dayIndex + ', ' + i + ', -1)"' + (isFirst ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_up</span></button>' +
-                  '<button class="btn btn-ghost btn-sm" onclick="moveExercise(' + dayIndex + ', ' + i + ', 1)"' + (isLast ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 16px;">keyboard_arrow_down</span></button>' +
                   '<button class="btn btn-ghost btn-sm" onclick="removeExercise(' + dayIndex + ', ' + i + ')"><span class="material-symbols-outlined" style="font-size: 16px;">close</span></button>' +
                 '</div>' +
               '</div>' +
@@ -1756,6 +1843,24 @@
       }
 
       container.innerHTML = html;
+      if (isEditing) {
+        var list = document.querySelector('.programma-detail');
+        if (list) {
+          if (list._sortable) list._sortable.destroy();
+          list._sortable = new Sortable(list, {
+            handle: '.drag-handle',
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            onEnd: function(evt) {
+              var esercizi = state.templates[state.editingDay].esercizi;
+              var item = esercizi.splice(evt.oldIndex, 1)[0];
+              esercizi.splice(evt.newIndex, 0, item);
+              saveCache();
+            }
+          });
+        }
+      }
     }
 
     function toggleProgrammaEdit() {
