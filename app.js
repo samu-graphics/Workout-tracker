@@ -40,7 +40,7 @@
       analisiLevel: 'intermediate',
       analisiMode: 'reale',
       analisiFilter: 'week',
-      fase: 1, // 1, 2, 3, 'deload'
+      fase: '1', // '1', '2', '3', 'deload'
       darkMode: null, // null=system, true=dark, false=light
       progressoEsercizio: null,
       _notesOpen: null,
@@ -135,8 +135,8 @@
     function getSerieAdjusted(ex) {
       var s = ex.serie;
       if (state.fase === 'deload') return Math.max(1, Math.ceil(s / 2));
-      if (state.fase >= 2 && /^Alzate laterali.*cavi/.test(ex.nome)) s = Math.round(s * 1.2);
-      if (state.fase >= 3 && /^Shrug/.test(ex.nome)) s = Math.round(s * 1.25);
+      if (parseInt(state.fase, 10) >= 2 && /^Alzate laterali.*cavi/.test(ex.nome)) s = Math.round(s * 1.2);
+      if (parseInt(state.fase, 10) >= 3 && /^Shrug/.test(ex.nome)) s = Math.round(s * 1.25);
       return s;
     }
 
@@ -215,8 +215,14 @@
         data.restTimerStartTime = state.restTimerStartTime;
         data.restTimerTotal = state.restTimerTotal;
       }
-      localStorage.setItem('workout_cache', JSON.stringify(data));
-      localStorage.setItem('workout_history', JSON.stringify(state.workoutHistory));
+      try {
+        localStorage.setItem('workout_cache', JSON.stringify(data));
+        localStorage.setItem('workout_history', JSON.stringify(state.workoutHistory));
+      } catch(e) {
+        console.warn('Save failed:', e);
+        showToast('Errore salvataggio dati');
+        return;
+      }
       showSaveToast();
     }
 
@@ -268,6 +274,7 @@
 
     var saveToastTimer = null;
     function showSaveToast() {
+      if (state.activeWorkout) return;
       var existing = document.querySelector('.save-toast');
       if (existing) existing.remove();
       if (saveToastTimer) clearTimeout(saveToastTimer);
@@ -285,10 +292,10 @@
         { id: 'analisi', label: 'Analisi', icon: 'insights' },
         { id: 'programma', label: 'Programma', icon: 'calendar_view_week' },
         { id: 'storico', label: 'Storico', icon: 'history' },
-        { id: 'impostazioni', label: '', icon: 'settings' },
+        { id: 'impostazioni', label: 'Impostazioni', icon: 'settings' },
       ];
       tabBar.innerHTML = tabs.map(t => `
-        <button class="tab-btn${state.currentView === t.id ? ' active' : ''}" data-view="${t.id}">
+        <button class="tab-btn${state.currentView === t.id ? ' active' : ''}" data-view="${t.id}" role="tab" aria-selected="${state.currentView === t.id}" aria-label="${t.label || t.id}">
           <span class="material-symbols-outlined">${t.icon}</span>
           ${t.label ? `<span class="tab-label">${t.label}</span>` : ''}
         </button>
@@ -405,10 +412,10 @@
     // Dark mode init
     var prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
     function applyDarkMode() {
+      document.documentElement.classList.remove('dark', 'light');
       if (state.darkMode === true) { document.documentElement.classList.add('dark'); }
-      else if (state.darkMode === false) { document.documentElement.classList.remove('dark'); }
+      else if (state.darkMode === false) { document.documentElement.classList.add('light'); }
       else if (prefersDark.matches) { document.documentElement.classList.add('dark'); }
-      else { document.documentElement.classList.remove('dark'); }
     }
     applyDarkMode();
     prefersDark.addEventListener('change', function() {
@@ -650,6 +657,7 @@
         state.currentSet = 0;
         state.workoutStartTime = Date.now();
         state.restExerciseIndex = -1;
+        state._notesOpen = null;
       }
 
       saveCache();
@@ -713,13 +721,13 @@
       var html = '';
       html += '<div class="workout-sticky">';
       var faseLabel = state.fase === 'deload' ? 'Deload' : 'Fase ' + state.fase;
-      html += '<div class="flex items-center justify-between mb-8"><button class="workout-header-btn" onclick="exitWorkout()"><span class="material-symbols-outlined">arrow_back</span> ' + escapeHtml(state.activeWorkout.giorno) + '</button><div class="flex items-center gap-8"><span class="fase-badge">' + escapeHtml(faseLabel) + '</span><div class="timer"><span class="material-symbols-outlined" style="font-size: 16px; color: var(--text-secondary);">schedule</span><span id="timer-display" class="workout-sticky-timer">' + formatTime(Math.floor((Date.now() - state.workoutStartTime) / 1000)) + '</span></div><button class="btn btn-ghost btn-sm" style="color: var(--accent);" onclick="if(confirm(\'Terminare l\\\'allenamento?\'))finishWorkout()">Fine</button></div></div>';
+      html += '<div class="flex items-center justify-between mb-8"><button class="workout-header-btn" onclick="exitWorkout()" aria-label="Torna alla home"><span class="material-symbols-outlined">arrow_back</span> ' + escapeHtml(state.activeWorkout.giorno) + '</button><div class="flex items-center gap-8"><span class="fase-badge">' + escapeHtml(faseLabel) + '</span><div class="timer"><span class="material-symbols-outlined" style="font-size: 16px; color: var(--text-secondary);" aria-hidden="true">schedule</span><span id="timer-display" class="workout-sticky-timer">' + formatTime(Math.floor((Date.now() - state.workoutStartTime) / 1000)) + '</span></div><button class="btn btn-ghost btn-sm" style="color: var(--accent);" onclick="if(confirm(\'Terminare l\\\'allenamento?\'))finishWorkout()">Fine</button></div></div>';
 
       // Navigation prev/next
       html += '<div class="flex items-center gap-8 mb-12">';
-      html += '<button class="nav-btn" onclick="navigateToExercise(' + (state.currentExercise - 1) + ')"' + (isFirstEx ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size: 14px;">chevron_left</span> Prec</button>';
-      html += '<span class="muted" style="flex:1; text-align:center;">' + (state.currentExercise + 1) + ' / ' + exercises.length + '</span>';
-      html += '<button class="nav-btn" onclick="navigateToExercise(' + (state.currentExercise + 1) + ')"' + (isLastEx ? ' disabled' : '') + '>Succ <span class="material-symbols-outlined" style="font-size: 14px;">chevron_right</span></button>';
+      html += '<button class="nav-btn" onclick="navigateToExercise(' + (state.currentExercise - 1) + ')"' + (isFirstEx ? ' disabled' : '') + ' aria-label="Esercizio precedente"><span class="material-symbols-outlined" style="font-size: 14px;">chevron_left</span> Prec</button>';
+      html += '<span class="muted" style="flex:1; text-align:center;" aria-live="polite">' + (state.currentExercise + 1) + ' / ' + exercises.length + '</span>';
+      html += '<button class="nav-btn" onclick="navigateToExercise(' + (state.currentExercise + 1) + ')"' + (isLastEx ? ' disabled' : '') + ' aria-label="Esercizio successivo">Succ <span class="material-symbols-outlined" style="font-size: 14px;">chevron_right</span></button>';
       html += '</div>';
 
       // Progress bar
@@ -738,7 +746,7 @@
               '<div class="timer-bar">' +
                 '<div class="timer-bar-fill" style="width: ' + fillPct + '%"></div>' +
               '</div>' +
-              '<button class="btn btn-ghost" onclick="skipRest()">' +
+              '<button class="btn btn-ghost" onclick="skipRest()" aria-label="Salta recupero">' +
                 '<span class="material-symbols-outlined">skip_next</span> Salta' +
               '</button>' +
             '</div>' +
@@ -749,7 +757,7 @@
       // Double progression coach alert
       if (allDoneAllMax && templateCurrentEx) {
         var oldWeight = state.lastWeights[currentEx.nome];
-        var suggestPeso = oldWeight ? Math.ceil((oldWeight.peso + 2.5) / 2.5) * 2.5 : '';
+        var suggestPeso = oldWeight && oldWeight.peso ? Math.ceil((oldWeight.peso + 2.5) / 2.5) * 2.5 : '';
         html += '<div class="dprog-alert">Tutte le serie al massimo delle ripetizioni! ' + (suggestPeso ? 'Prova ad aumentare a ' + suggestPeso + ' kg.' : 'Aumenta il carico al prossimo allenamento.') + '</div>';
       }
 
@@ -810,7 +818,7 @@
         if (!isCurrentEx) exClasses += ' clickable';
 
         html += '<div class="' + exClasses + '"' + (!isCurrentEx ? ' onclick="navigateToExercise(' + exIdx + ')"' : '') + '>';
-        html += '<div class="flex items-center justify-between mb-8"><div><div class="exercise-name">' + (isSkipped ? '<span class="muted">Saltato: </span>' : '') + escapeHtml(ex.nome) + (progressionPill ? ' <span class="progression-pill">📈 ' + progressionPill + '</span>' : '') + '</div><div class="exercise-meta">' + escapeHtml(ex.serieTarget) + ' serie · target ' + escapeHtml(targetReps) + ' reps · RPE ' + (templateEx ? escapeHtml(templateEx.rpeTarget) : '') + (allSetsDone ? ' <span class="material-symbols-outlined accent-text" style="font-size: 14px;">check_circle</span>' : '') + '</div></div><div style="display: flex; gap: 4px;">' + (EXERCISE_NOTES[ex.nome] ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleNotes(' + exIdx + ')"><span class="material-symbols-outlined" style="font-size: 16px;">info</span></button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showSwapModal(' + exIdx + ')">Sost.</button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();skipExercise(' + exIdx + ')">Salta</button>' : '') + '</div></div>';
+        html += '<div class="flex items-center justify-between mb-8"><div><div class="exercise-name">' + (isSkipped ? '<span class="muted">Saltato: </span>' : '') + escapeHtml(ex.nome) + (progressionPill ? ' <span class="progression-pill">📈 ' + progressionPill + '</span>' : '') + '</div><div class="exercise-meta">' + escapeHtml(ex.serieTarget) + ' serie · target ' + escapeHtml(targetReps) + ' reps · RPE ' + (templateEx ? escapeHtml(templateEx.rpeTarget) : '') + (allSetsDone ? ' <span class="material-symbols-outlined accent-text" style="font-size: 14px;">check_circle</span>' : '') + '</div></div><div style="display: flex; gap: 4px;">' + (EXERCISE_NOTES[ex.nome] ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleNotes(' + exIdx + ')" aria-label="Note esercizio"><span class="material-symbols-outlined" style="font-size: 16px;">info</span></button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showSwapModal(' + exIdx + ')">Sost.</button>' : '') + (isCurrentEx ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();skipExercise(' + exIdx + ')">Salta</button>' : '') + '</div></div>';
 
         // Notes panel (expandable)
         if (EXERCISE_NOTES[ex.nome]) {
@@ -840,13 +848,16 @@
           } else if (isCurrentSet) {
             html += '<div class="set-check" onclick="completeSet()"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>';
           } else {
-            html += '<div class="set-check" style="opacity: 0.2;"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>';
+            html += '<div class="set-check" onclick="removeSet(' + exIdx + ',' + setIdx + ')" title="Rimuovi serie"><span class="material-symbols-outlined" style="font-size: 16px;">close</span></div>';
           }
           html += '</div>';
 
           html += '</div>';
         });
 
+        if (isCurrentEx) {
+          html += '<div class="set-grid"><div class="set-cell" style="grid-column:1/-1;"><button class="add-set-btn" onclick="addSet(' + exIdx + ')"><span class="material-symbols-outlined" style="font-size:14px;">add</span> Aggiungi serie</button></div></div>';
+        }
         html += '</div>';
       });
 
@@ -854,11 +865,32 @@
       view.innerHTML = html;
       updateMediaSession();
       setTimeout(setupSwipe, 0);
+      setTimeout(restoreFocus, 50);
+    }
+
+    function restoreFocus() {
+      if (!state.activeWorkout) return;
+      var ex = state.activeWorkout.exercises[state.currentExercise];
+      if (!ex) return;
+      var set = ex.sets[state.currentSet];
+      if (!set || set.completato) return;
+      var repsInput = document.getElementById('input-reps-' + state.currentExercise + '-' + state.currentSet);
+      var pesoInput = document.getElementById('input-peso-' + state.currentExercise + '-' + state.currentSet);
+      if (repsInput && repsInput.disabled === false && !repsInput.value) {
+        repsInput.focus();
+      } else if (pesoInput && pesoInput.disabled === false && !pesoInput.value) {
+        pesoInput.focus();
+      }
     }
 
     function setupSwipe() {
       var row = document.querySelector('.set-grid.current');
       if (!row) return;
+
+      if (row._swipeCleanup) {
+        row._swipeCleanup();
+      }
+
       var startX = 0, deltaX = 0, isSwiping = false;
 
       function onTouchStart(e) {
@@ -904,6 +936,11 @@
       row.addEventListener('touchstart', onTouchStart, { passive: true });
       row.addEventListener('touchmove', onTouchMove, { passive: true });
       row.addEventListener('touchend', onTouchEnd);
+      row._swipeCleanup = function() {
+        row.removeEventListener('touchstart', onTouchStart);
+        row.removeEventListener('touchmove', onTouchMove);
+        row.removeEventListener('touchend', onTouchEnd);
+      };
     }
 
     function toggleNotes(exIdx) {
@@ -916,6 +953,14 @@
       var ex = state.activeWorkout.exercises[exIdx];
       if (!ex || !ex.warmupSets) return;
       ex.warmupSets[setIdx].done = !ex.warmupSets[setIdx].done;
+      var allDone = ex.warmupSets.every(function(ws) { return ws.done; });
+      if (allDone && state.restExerciseIndex < 0) {
+        state.restExerciseIndex = exIdx;
+        state.restTimerStartTime = Date.now();
+        state.restTimerTotal = ex.recupero;
+        saveCache();
+        startRestTimer(ex.recupero);
+      }
       renderAllenamento();
     }
 
@@ -967,10 +1012,9 @@
           saveCache();
           renderAllenamento();
           startRestTimer(currentEx.recupero);
-          if (state.currentExercise >= state.activeWorkout.exercises.length) {
-            finishWorkout();
-          }
+          return;
         }
+        finishWorkout();
         return;
       }
 
@@ -1065,11 +1109,55 @@
       html += '<div class="modal-actions" style="margin-top:16px;"><button class="btn btn-block" onclick="this.closest(\'.modal-overlay\').remove()">Annulla</button></div></div>';
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
       overlay.innerHTML = html;
       document.body.appendChild(overlay);
       requestAnimationFrame(function() { overlay.classList.add('active'); });
     }
 
+    function addSet(exIdx) {
+      if (!state.activeWorkout) return;
+      var ex = state.activeWorkout.exercises[exIdx];
+      if (!ex) return;
+      var last = state.lastWeights[ex.nome];
+      ex.sets.push({
+        serie_numero: ex.sets.length + 1,
+        ripetizioni: null,
+        peso_kg: last ? last.peso : null,
+        rir: last ? last.rir : null,
+        completato: false
+      });
+      clearInterval(state.timerInterval);
+      state.restExerciseIndex = -1;
+      state.restTimerStartTime = 0;
+      state.restTimerTotal = 0;
+      saveCache();
+      renderAllenamento();
+    }
+
+    function removeSet(exIdx, setIdx) {
+      if (!state.activeWorkout) return;
+      var ex = state.activeWorkout.exercises[exIdx];
+      if (!ex) return;
+      if (ex.sets.length <= 1) return;
+      var removed = ex.sets[setIdx];
+      ex.sets.splice(setIdx, 1);
+      if (state.currentSet >= ex.sets.length) {
+        state.currentSet = Math.max(0, ex.sets.length - 1);
+      }
+      clearInterval(state.timerInterval);
+      state.restExerciseIndex = -1;
+      state.restTimerStartTime = 0;
+      state.restTimerTotal = 0;
+      saveCache();
+      renderAllenamento();
+      showUndoToast('Serie rimossa', function() {
+        ex.sets.splice(setIdx, 0, removed);
+        saveCache();
+        renderAllenamento();
+      });
+    }
     function uncompleteSet(exIdx, setIdx) {
       var ex = state.activeWorkout.exercises[exIdx];
       if (!ex) return;
@@ -1191,6 +1279,7 @@
       clearInterval(state.workoutTimerInterval);
       state.workoutTimerInterval = null;
       state.restExerciseIndex = -1;
+      state._notesOpen = null;
       document.getElementById('workout-pill').classList.add('hidden');
       var duration = Math.floor((Date.now() - state.workoutStartTime) / 1000);
       var workoutRecord = {
@@ -1392,8 +1481,8 @@
       html += '<span style="font-weight:700;font-size:13px;">Volume ' + trendDir + '</span>';
       html += '</div>';
 
-      var W = 300, H = 150;
-      var padL = 32, padR = 8, padT = 12, padB = 24;
+      var W = 300, H = 165;
+      var padL = 32, padR = 8, padT = 12, padB = 36;
       var chartW = W - padL - padR;
       var chartH = H - padT - padB;
 
@@ -1438,7 +1527,7 @@
       svg += '<polyline points="' + linePoints.join(' ') + '" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>';
 
       svg += '</svg>';
-      html += '<div style="width:100%;height:180px;">' + svg + '</div>';
+      html += '<div style="width:100%;height:195px;">' + svg + '</div>';
       html += '</div>';
 
       return html;
@@ -1560,7 +1649,7 @@
           html += '<option value="' + escapeHtml(name) + '"' + (name === selEx ? ' selected' : '') + '>' + escapeHtml(name) + '</option>';
         });
         html += '</select>';
-        html += '<div id="progress-chart" style="width:100%;height:180px;">' + buildProgressChartSVG(selEx) + '</div>';
+        html += '<div id="progress-chart" style="width:100%;height:195px;">' + buildProgressChartSVG(selEx) + '</div>';
       } else {
         html += '<div class="divider"></div><h3>Progresso per esercizio</h3><p class="muted" style="font-size: 12px;">Completa alcuni allenamenti per vedere i grafici di progressione.</p>';
       }
@@ -1621,8 +1710,8 @@
         return '<p class="muted" style="font-size:12px;">Servono almeno 2 allenamenti con peso registrato per vedere un grafico.</p>';
       }
 
-      var W = 300, H = 150;
-      var padL = 32, padR = 8, padT = 12, padB = 24;
+      var W = 300, H = 165;
+      var padL = 32, padR = 8, padT = 12, padB = 36;
       var chartW = W - padL - padR;
       var chartH = H - padT - padB;
 
@@ -1643,7 +1732,7 @@
         if (diff > 0) {
           compareHtml = '<div class="progress-compare success">▲ +' + diff + ' kg dall\'ultima sessione</div>';
         } else if (diff < 0) {
-          compareHtml = '<div class="progress-compare error">▼ ' + diff + ' kg dall\'ultima sessione</div>';
+          compareHtml = '<div class="progress-compare error">▼ ' + Math.abs(diff) + ' kg dall\'ultima sessione</div>';
         } else {
           compareHtml = '<div class="progress-compare">— invariato rispetto all\'ultima sessione</div>';
         }
@@ -1785,9 +1874,9 @@
         }
 
         html += '<div class="divider mt-24"></div><h3>Fase</h3><div class="toggle-group mb-12">';
-        html += '<button class="toggle-btn' + (state.fase === 1 ? ' active' : '') + '" onclick="setFase(1)">Fase 1</button>';
-        html += '<button class="toggle-btn' + (state.fase === 2 ? ' active' : '') + '" onclick="setFase(2)">Fase 2</button>';
-        html += '<button class="toggle-btn' + (state.fase === 3 ? ' active' : '') + '" onclick="setFase(3)">Fase 3</button>';
+        html += '<button class="toggle-btn' + (state.fase === '1' ? ' active' : '') + '" onclick="setFase(\'1\')">Fase 1</button>';
+        html += '<button class="toggle-btn' + (state.fase === '2' ? ' active' : '') + '" onclick="setFase(\'2\')">Fase 2</button>';
+        html += '<button class="toggle-btn' + (state.fase === '3' ? ' active' : '') + '" onclick="setFase(\'3\')">Fase 3</button>';
         html += '<button class="toggle-btn' + (state.fase === 'deload' ? ' active' : '') + '" onclick="setFase(\'deload\')">Deload</button>';
         html += '</div><p class="muted" style="font-size: 11px;">Fase 2: alzate laterali +1 serie | Fase 3: anche shrug +1 serie | Deload: -50% serie</p>';
 
@@ -1825,21 +1914,7 @@
           html += '</div>';
         }
 
-        html += '<h3 class="section-title" style="margin-top:24px;">Schema settimanale</h3>' +
-          '<div class="programma-week-grid">';
-        dayNames.forEach(function(name, i) {
-          var t = templates[i];
-          var oggi = new Date().toISOString().split('T')[0];
-          var isDone = t ? state.workoutHistory.some(function(w) {
-            return w.giorno === t.giorno && w.data === oggi;
-          }) : false;
-          html += '<div class="programma-week-cell' + (i === dayIndex ? ' active' : '') + '" onclick="setEditingDay(' + i + ')">' +
-            '<div class="week-cell-day">' + name.substring(0, 3) + '</div>' +
-            '<div class="week-cell-name">' + (t ? escapeHtml(t.nome || t.giorno) : '—') + '</div>' +
-            (isDone ? '<div class="week-cell-check"><span class="material-symbols-outlined" style="font-size:14px;">check_circle</span></div>' : '') +
-          '</div>';
-        });
-        html += '</div>';
+
       }
 
       container.innerHTML = html;
@@ -1961,6 +2036,8 @@
       html += '<div class="modal-actions"><button class="btn btn-block" onclick="this.closest(\'.modal-overlay\').remove()">Chiudi</button></div></div>';
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
       overlay.innerHTML = html;
       document.body.appendChild(overlay);
       requestAnimationFrame(function() { overlay.classList.add('active'); });
@@ -2011,7 +2088,12 @@
 
         setTimeout(function() {
           try {
-            anime({ targets: '.chart-bar', width: function(el) { return el.style.width; }, easing: 'easeOutCubic', duration: 800, delay: anime.stagger(100) });
+            var bars = document.querySelectorAll('.chart-bar');
+            bars.forEach(function(el) {
+              el.setAttribute('data-w', el.style.width);
+              el.style.width = '0';
+            });
+            anime({ targets: '.chart-bar', width: function(el) { return el.getAttribute('data-w'); }, easing: 'easeOutCubic', duration: 800, delay: anime.stagger(100) });
           } catch(e) {}
         }, 100);
 
@@ -2070,6 +2152,8 @@
       html += '<div class="modal-actions"><button class="btn btn-block" onclick="this.closest(\'.modal-overlay\').remove()">Chiudi</button></div></div>';
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
       overlay.innerHTML = html;
       document.body.appendChild(overlay);
       requestAnimationFrame(function() { overlay.classList.add('active'); });
@@ -2093,6 +2177,8 @@
       html += '<div class="divider"></div><div class="modal-actions"><button class="btn btn-ghost" style="color: var(--accent-dark);" onclick="deleteWorkout(\'' + id + '\'); this.closest(\'.modal-overlay\').remove()">Elimina allenamento</button><button class="btn btn-block" onclick="this.closest(\'.modal-overlay\').remove()">Chiudi</button></div></div>';
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
       overlay.innerHTML = html;
       document.body.appendChild(overlay);
       requestAnimationFrame(function() { overlay.classList.add('active'); });
@@ -2206,6 +2292,8 @@
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
       overlay.id = 'add-ex-modal';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
       overlay.innerHTML = '<div class="modal-box"><h2>Nuovo esercizio</h2><label for="add-ex-name">Nome</label><input type="text" id="add-ex-name" placeholder="es. Panca piana" autofocus><label for="add-ex-sets">Serie</label><input type="number" id="add-ex-sets" value="3" min="1" max="10"><label for="add-ex-reps">Reps target</label><input type="text" id="add-ex-reps" value="8-12" placeholder="8-12"><label for="add-ex-rest">Recupero (min)</label><input type="number" id="add-ex-rest" value="1.5" min="0.5" max="5" step="0.5"><div class="modal-actions"><button class="btn btn-ghost" onclick="document.getElementById(\'add-ex-modal\').remove()">Annulla</button><button class="btn btn-primary" onclick="confirmAddExercise()">Aggiungi</button></div></div>';
       document.body.appendChild(overlay);
       requestAnimationFrame(function() { overlay.classList.add('active'); });

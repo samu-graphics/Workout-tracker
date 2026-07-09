@@ -4,11 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Workout Tracker</title>
+  <script>(function(){var c;try{c=JSON.parse(localStorage.getItem('workout_cache'))}catch(e){}var m=c&&c.darkMode;if(m===true)document.documentElement.classList.add('dark');else if(m===false)document.documentElement.classList.add('light');else if(matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.classList.add('dark')})();</script>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,0..200" rel="stylesheet" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,0..200" rel="stylesheet" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js" defer integrity="sha384-fXdIufVbE9aU7STmdk/DWK0imNOozId9fTwzM/gi0NfPjphEIC3gq0M760UnsKVy" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" defer integrity="sha384-6Nh5W/2R0RjIKSX9vxOJ2kSRgPNQWwJxvPjjLPjnrnGEE7nT4O+eYRVM05SLMK3j" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" defer integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:;">
 </head>
 <body>
@@ -20,7 +21,7 @@
     <main id="view-programma" class="view"></main>
     <main id="view-storico" class="view"></main>
     <main id="view-impostazioni" class="view"></main>
-    <nav id="tab-bar" class="tab-bar"></nav>
+    <nav id="tab-bar" class="tab-bar" role="tablist" aria-label="Navigazione principale"></nav>
     <div id="workout-pill" class="workout-pill hidden" onclick="resumeWorkout()">
       <span id="pill-exercise-name"></span>
       <span class="material-symbols-outlined">arrow_forward</span>
